@@ -1,0 +1,32 @@
+appId: com.athletedomains.builderhub
+productName: Builder Hub
+directories:
+  buildResources: build
+files:
+  - '!**/.vscode/*'
+  - '!src/*'
+  - '!electron.vite.config.{js,ts,mjs,cjs}'
+  - '!electron-builder.yml'
+  - '!{.eslintignore,.prettierignore,.prettierrc,README.md,PLAN.md}'
+  - '!{.env,.env.*,.npmrc,package-lock.json}'
+  - '!tsconfig.json'
+  - '!smoke-*.cjs'
+# node-pty is native — it must live OUTSIDE the asar so its .node/.dll/.exe load at runtime.
+asarUnpack:
+  - resources/**
+  - '**/node_modules/@homebridge/node-pty-prebuilt-multiarch/**'
+  - '**/*.node'
+# Don't recompile native deps — we use the prebuilt node-pty fork (verified under Electron 33).
+npmRebuild: false
+win:
+  executableName: builder-hub
+  target:
+    - nsis
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Builder Hub
+  artifactName: ${name}-${version}-setup.${ext}
