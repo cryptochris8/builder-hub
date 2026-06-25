@@ -3,9 +3,10 @@ import { defineConfig, externalizeDepsPlugin } from 'electron-vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// Native modules (better-sqlite3, and node-pty in Phase 3) live in the main
-// process and are kept OUT of the Vite bundle by externalizeDepsPlugin, then
-// rebuilt for Electron's ABI via `npm run rebuild` (electron-builder install-app-deps).
+// node-pty (the embedded terminal's native module) lives in the main process and
+// is kept OUT of the Vite bundle by externalizeDepsPlugin. We use the prebuilt
+// @homebridge/node-pty fork, so there's no native rebuild step — electron-builder.yml
+// sets npmRebuild: false and asar-unpacks it.
 export default defineConfig({
   main: {
     plugins: [externalizeDepsPlugin()]

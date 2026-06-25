@@ -23,6 +23,29 @@ export function compareProjects(a: Project, b: Project): number {
   return a.name.localeCompare(b.name, undefined, { sensitivity: 'base' })
 }
 
+export interface RegistryRecovery {
+  rows: Project[]
+  /** true when the main file exists but couldn't be parsed (corrupt) — it should be
+   *  moved aside before the next write so the data loss isn't made permanent. */
+  preserveCorruptMain: boolean
+}
+
+/**
+ * Decide which registry rows to trust from what could be read off disk. Pure.
+ * @param main       parsed projects.json, or null if missing/corrupt/wrong-shape
+ * @param mainExists  whether projects.json exists on disk (corrupt vs. fresh install)
+ * @param bak        parsed projects.json.bak, or null
+ */
+export function recoverRegistry(
+  main: Project[] | null,
+  mainExists: boolean,
+  bak: Project[] | null
+): RegistryRecovery {
+  if (main) return { rows: main, preserveCorruptMain: false }
+  if (mainExists) return { rows: bak ?? [], preserveCorruptMain: true } // corrupt main
+  return { rows: [], preserveCorruptMain: false } // fresh install
+}
+
 const ENV_BY_TYPE: Partial<Record<ProjectType, string[]>> = {
   'web-app': ['DATABASE_URL=', 'STRIPE_SECRET_KEY=', 'STRIPE_WEBHOOK_SECRET=', 'RESEND_API_KEY=', 'SENTRY_DSN='],
   'mobile-app': ['FIREBASE_API_KEY=', 'ADMOB_APP_ID=', 'REVENUECAT_IOS_API_KEY='],

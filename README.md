@@ -5,7 +5,7 @@ A local-first desktop **command center** for my dev business: open or create a p
 This is the clean-foundation **v2 of FounderOS**. See **[PLAN.md](./PLAN.md)** for architecture, decisions, and the phased roadmap.
 
 ## Stack
-Electron · Vite · React 19 · TypeScript · Tailwind v4 · (SQLite + xterm/node-pty coming in Phases 2–3).
+Electron · Vite · React 19 · TypeScript · Tailwind v4 · xterm.js + node-pty (embedded terminal) · local-first JSON store.
 
 ## Develop
 ```bash

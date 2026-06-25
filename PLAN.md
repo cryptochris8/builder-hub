@@ -47,8 +47,9 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 ### ✅ Phase 5 — Polish, tests & package (core done)
 - ✅ **Connections panel** (Settings→Connections): lists MCP servers from `~/.claude.json` + each project's `.mcp.json`, explains how claude.ai connectors sync into Claude Code, GitHub-MCP add helper (copy), write-access note. GitHub already works via `gh` (authed, `repo` scope).
 - ✅ **Vitest harness**: pure logic extracted to `src/shared/projectLogic.ts` (sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles); **19 tests green** (`npm test`).
-- ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-0.2.0-setup.exe` (~82 MB). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
-- Optional polish (not done): custom app icon (`build/icon.ico`), code signing (avoids SmartScreen warning), "Today's Focus" ranking + dashboard KPIs, theming.
+- ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; currently 0.2.1). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
+- ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
+- Optional polish (not done): code signing (avoids SmartScreen warning), "Today's Focus" ranking + dashboard KPIs, theming.
 
 ### ✅ Workspace viewer tabs (post-Phase-5)
 Unified the terminal view into **Workspace** — per-project mixed tabs: Claude terminal + an **embedded Chromium browser** (`<webview>`, URL bar, back/fwd/reload, persistent `persist:hub` session). Per-type default URLs (roblox→Creator Dashboard, hytopia→play.hytopia.com, web→localhost:5173…), an **Open in Chrome** button (launches real `chrome.exe`), and **Launch Roblox Studio** (finds `RobloxStudioBeta.exe`) on roblox projects. Native apps launch externally — you can't host another app's window as a tab; Claude drives Studio via the Roblox_Studio MCP. Each project has a **URL field** + roblox projects get **▶ Play in Roblox** (launches the published game in the native Roblox Player via a `roblox://` deep link from the game's URL/place ID); the Viewer opens that URL when set.

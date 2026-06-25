@@ -1,11 +1,14 @@
 import { app } from 'electron'
-import { mkdirSync, readFileSync, writeFileSync } from 'fs'
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
+import { recoverRegistry } from '../shared/projectLogic'
 import type { Project } from '../shared/types'
 
 // Local-first storage: a single JSON file in the app's userData dir.
-// (Deliberately dependency-free — no native module to compile. If the registry
-// ever outgrows this, swap in SQLite behind the same allProjects()/persist() API.)
+// Writes are atomic (tmp + rename) and keep a .bak, and a corrupt file is moved
+// aside rather than silently overwritten — so a crash mid-write can't wipe the
+// registry. (Deliberately dependency-free — no native module to compile. If this
+// ever outgrows a JSON file, swap in SQLite behind allProjects()/persist().)
 
 let cache: Project[] | null = null
 
@@ -13,14 +16,29 @@ function file(): string {
   return join(app.getPath('userData'), 'projects.json')
 }
 
+function readJson(path: string): Project[] | null {
+  try {
+    const parsed = JSON.parse(readFileSync(path, 'utf8'))
+    return Array.isArray(parsed) ? (parsed as Project[]) : null
+  } catch {
+    return null // missing or corrupt — recoverRegistry() decides what to do
+  }
+}
+
 function load(): Project[] {
-  if (!cache) {
+  if (cache) return cache
+  const f = file()
+  const { rows, preserveCorruptMain } = recoverRegistry(readJson(f), existsSync(f), readJson(`${f}.bak`))
+  // A corrupt main file is moved aside (never silently overwritten) so it stays
+  // recoverable and the next persist() can't make the data loss permanent.
+  if (preserveCorruptMain) {
     try {
-      cache = JSON.parse(readFileSync(file(), 'utf8')) as Project[]
+      renameSync(f, `${f}.corrupt-${Date.now()}`)
     } catch {
-      cache = []
+      /* best-effort */
     }
   }
+  cache = rows
   return cache
 }
 
@@ -32,5 +50,13 @@ export function persist(rows: Project[]): void {
   cache = rows
   const f = file()
   mkdirSync(dirname(f), { recursive: true })
-  writeFileSync(f, JSON.stringify(rows, null, 2), 'utf8')
+  const tmp = `${f}.tmp`
+  writeFileSync(tmp, JSON.stringify(rows, null, 2), 'utf8')
+  // Keep the last good copy as .bak, then atomically replace (MoveFileEx on Windows).
+  try {
+    if (existsSync(f)) copyFileSync(f, `${f}.bak`)
+  } catch {
+    /* best-effort backup */
+  }
+  renameSync(tmp, f)
 }

@@ -89,6 +89,16 @@ function touchOpened(path: string): void {
   }
 }
 
+// Mark a project opened by id (used when launching the embedded Claude session).
+function touchOpenedById(id: string): Project | null {
+  const rows = allProjects()
+  const project = rows.find((p) => p.id === id)
+  if (!project) return null
+  project.lastOpenedAt = Date.now()
+  persist(rows)
+  return project
+}
+
 // ---------- type detection ----------
 function hasFile(dir: string, file: string): boolean {
   return existsSync(join(dir, file))
@@ -356,9 +366,11 @@ function launchTerminal(path: string): LaunchResult {
 
 function launchClaude(path: string): LaunchResult {
   // Interim external launch (the Hub normally embeds Claude via xterm + node-pty).
+  // Both branches quote the path (`start /d` sets the working dir) so it survives
+  // spaces and special characters.
   const cmd = hasWindowsTerminal()
     ? `wt -d ${quote(path)} cmd /k claude`
-    : `start "" cmd /k "cd /d ${path} && claude"`
+    : `start "" /d ${quote(path)} cmd /k claude`
   const res = spawnDetached(cmd)
   if (res.ok) touchOpened(path)
   return res
@@ -448,6 +460,7 @@ export function registerProjectIpc(): void {
   ipcMain.handle('projects:rescan', () => rescan())
   ipcMain.handle('projects:create', (_e, opts: CreateProjectOptions) => createProject(opts))
   ipcMain.handle('projects:ensureContext', (_e, id: string) => ensureStackAware(id))
+  ipcMain.handle('projects:touch', (_e, id: string) => touchOpenedById(id))
   ipcMain.handle('launch:folder', (_e, path: string) => launchFolder(path))
   ipcMain.handle('launch:editor', (_e, path: string) => launchEditor(path))
   ipcMain.handle('launch:terminal', (_e, path: string) => launchTerminal(path))

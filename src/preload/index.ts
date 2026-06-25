@@ -25,7 +25,8 @@ const api = {
     remove: (id: string): Promise<boolean> => ipcRenderer.invoke('projects:remove', id),
     rescan: (): Promise<RescanResult> => ipcRenderer.invoke('projects:rescan'),
     ensureContext: (id: string): Promise<{ seeded: boolean }> =>
-      ipcRenderer.invoke('projects:ensureContext', id)
+      ipcRenderer.invoke('projects:ensureContext', id),
+    touch: (id: string): Promise<Project | null> => ipcRenderer.invoke('projects:touch', id)
   },
   launch: {
     folder: (path: string): Promise<LaunchResult> => ipcRenderer.invoke('launch:folder', path),

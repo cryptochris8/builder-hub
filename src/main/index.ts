@@ -2,7 +2,7 @@ import { app, shell, BrowserWindow, ipcMain } from 'electron'
 import { join } from 'path'
 import appIcon from '../../build/icon.png?asset'
 import { registerProjectIpc, seedIfEmpty } from './projects'
-import { registerPtyIpc } from './pty'
+import { registerPtyIpc, killAllPtys } from './pty'
 import { registerMcpIpc } from './mcp'
 
 function createWindow(): void {
@@ -60,3 +60,6 @@ app.whenReady().then(() => {
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') app.quit()
 })
+
+// Don't leave embedded terminal processes running after the app exits.
+app.on('will-quit', killAllPtys)

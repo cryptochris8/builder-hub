@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles } from './projectLogic'
+import { sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles, recoverRegistry } from './projectLogic'
 import type { Project } from './types'
 
 const proj = (over: Partial<Project>): Project => ({
@@ -63,4 +63,17 @@ describe('detectTypeFromFiles', () => {
   it('detects static-site from index.html alone', () =>
     expect(detectTypeFromFiles(['index.html'])).toBe('static-site'))
   it('falls back to other', () => expect(detectTypeFromFiles(['notes.txt'])).toBe('other'))
+})
+
+describe('recoverRegistry', () => {
+  const rows = [proj({ id: 'a' })]
+  const bak = [proj({ id: 'b' })]
+  it('trusts the main file when it parses', () =>
+    expect(recoverRegistry(rows, true, bak)).toEqual({ rows, preserveCorruptMain: false }))
+  it('falls back to .bak when main is corrupt, flagging it to be preserved', () =>
+    expect(recoverRegistry(null, true, bak)).toEqual({ rows: bak, preserveCorruptMain: true }))
+  it('returns empty (and preserves) when main is corrupt with no .bak', () =>
+    expect(recoverRegistry(null, true, null)).toEqual({ rows: [], preserveCorruptMain: true }))
+  it('returns empty without preserving on a fresh install (no main file)', () =>
+    expect(recoverRegistry(null, false, null)).toEqual({ rows: [], preserveCorruptMain: false }))
 })

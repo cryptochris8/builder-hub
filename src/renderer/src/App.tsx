@@ -99,7 +99,8 @@ export default function App() {
       setActiveKey(key)
     }
     setView('workspace')
-    void onUpdate(p.id, {}) // bump updatedAt so it surfaces in "recent"
+    await hub.projects.touch(p.id) // mark recently-opened → surfaces in Dashboard "Recent"
+    await refresh()
   }
 
   // Open an embedded browser tab for a project.
