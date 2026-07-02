@@ -83,7 +83,9 @@ describe('stateForHookEvent', () => {
 describe('ensureHubHooks — upgrades & shape safety', () => {
   it('upgrades a stale hub-owned command in place', () => {
     const stale = JSON.stringify({
-      hooks: { Stop: [{ hooks: [{ type: 'command', command: `curl -s -m 2 -X POST ${HOOK_URL} --data-binary @-` }] }] }
+      hooks: {
+        Stop: [{ hooks: [{ type: 'command', command: `curl -s -m 2 -X POST ${HOOK_URL} --data-binary @-` }] }]
+      }
     })
     const { next, changed } = ensureHubHooks(stale)
     expect(changed).toBe(true)

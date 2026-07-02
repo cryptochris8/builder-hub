@@ -4,7 +4,12 @@ import type { Server } from 'http'
 import { copyFileSync, existsSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { join } from 'path'
 import { allProjects } from './db'
-import { HUB_HOOK_PORT, ensureHubHooks, resolveSessionProject, stateForHookEvent } from '../shared/sessionLogic'
+import {
+  HUB_HOOK_PORT,
+  ensureHubHooks,
+  resolveSessionProject,
+  stateForHookEvent
+} from '../shared/sessionLogic'
 import type { ClaudeStatusEvent } from '../shared/types'
 
 // Tier-2 cockpit, part (a): Claude Code hooks → Hub notifications.

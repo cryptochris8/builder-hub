@@ -101,19 +101,28 @@ export function FilesPane({
           title={entry.path}
           style={{ paddingLeft: `${depth * 14 + 8}px` }}
           className={`flex cursor-pointer items-center gap-1.5 rounded py-[3px] pr-2 text-xs ${
-            isSelected ? 'bg-indigo-500/20 text-white' : dim ? 'text-slate-600 hover:bg-white/5' : 'text-slate-300 hover:bg-white/5'
+            isSelected
+              ? 'bg-indigo-500/20 text-white'
+              : dim
+                ? 'text-slate-600 hover:bg-white/5'
+                : 'text-slate-300 hover:bg-white/5'
           }`}
         >
           <span className="w-3 shrink-0 text-center text-slate-500">
             {entry.isDir ? (isOpen ? '▾' : '▸') : KIND_ICON[entry.kind]}
           </span>
           <span className="truncate">{entry.name}</span>
-          {!entry.isDir && <span className="ml-auto shrink-0 text-[10px] text-slate-600">{prettyBytes(entry.size)}</span>}
+          {!entry.isDir && (
+            <span className="ml-auto shrink-0 text-[10px] text-slate-600">{prettyBytes(entry.size)}</span>
+          )}
         </div>
         {isOpen && (
           <div>
             {errors[entry.path] && (
-              <div style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }} className="py-1 text-[11px] text-rose-400/80">
+              <div
+                style={{ paddingLeft: `${(depth + 1) * 14 + 8}px` }}
+                className="py-1 text-[11px] text-rose-400/80"
+              >
                 {errors[entry.path]}
               </div>
             )}
@@ -143,7 +152,9 @@ export function FilesPane({
           {(dirCache[root] ?? []).map((entry) => (
             <Row key={entry.path} entry={entry} depth={0} />
           ))}
-          {!dirCache[root] && !errors[root] && <div className="px-2 py-2 text-xs text-slate-600">Loading…</div>}
+          {!dirCache[root] && !errors[root] && (
+            <div className="px-2 py-2 text-xs text-slate-600">Loading…</div>
+          )}
         </div>
       </div>
 
@@ -163,13 +174,25 @@ export function FilesPane({
               >
                 {sent ? '✓ Sent' : '▸ Send to Claude'}
               </button>
-              <button onClick={() => void hub.clipboard.writeText(selected.path)} className={btn} title="Copy full path">
+              <button
+                onClick={() => void hub.clipboard.writeText(selected.path)}
+                className={btn}
+                title="Copy full path"
+              >
                 Copy path
               </button>
-              <button onClick={() => void hub.fs.openExternal(selected.path)} className={btn} title="Open with the default app">
+              <button
+                onClick={() => void hub.fs.openExternal(selected.path)}
+                className={btn}
+                title="Open with the default app"
+              >
                 Open ↗
               </button>
-              <button onClick={() => void hub.fs.showInFolder(selected.path)} className={btn} title="Show in Explorer">
+              <button
+                onClick={() => void hub.fs.showInFolder(selected.path)}
+                className={btn}
+                title="Show in Explorer"
+              >
                 🗁
               </button>
             </div>
@@ -183,7 +206,8 @@ export function FilesPane({
               Select a file to preview it here.
               <div className="mt-2 text-xs text-slate-700">
                 Images, video, audio, PDFs and text render in-app · anything else opens externally ·{' '}
-                <span className="text-slate-500">▸ Send to Claude</span> pastes the file's path into the project's session.
+                <span className="text-slate-500">▸ Send to Claude</span> pastes the file's path into the
+                project's session.
               </div>
             </div>
           </div>
@@ -229,7 +253,9 @@ function ImagePreview({ path }: { path: string }): React.JSX.Element {
   const [fit, setFit] = useState(true)
   const [failed, setFailed] = useState(false)
   if (failed)
-    return <div className="grid h-full place-items-center text-sm text-slate-500">Couldn't load this image.</div>
+    return (
+      <div className="grid h-full place-items-center text-sm text-slate-500">Couldn't load this image.</div>
+    )
   return (
     <div className="relative h-full">
       <button

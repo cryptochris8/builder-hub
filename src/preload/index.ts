@@ -8,7 +8,11 @@ import type {
   GitStatus,
   LaunchResult,
   ListDirResult,
+  McpActionResult,
+  McpListLive,
+  McpScope,
   McpServerInfo,
+  McpTransport,
   PasteResult,
   Project,
   PtyCreateOptions,
@@ -80,7 +84,20 @@ const api = {
     writeText: (text: string): Promise<boolean> => ipcRenderer.invoke('clipboard:writeText', text)
   },
   mcp: {
-    list: (): Promise<McpServerInfo[]> => ipcRenderer.invoke('mcp:list')
+    list: (): Promise<McpServerInfo[]> => ipcRenderer.invoke('mcp:list'),
+    live: (): Promise<McpListLive> => ipcRenderer.invoke('mcp:live'),
+    add: (opts: {
+      name: string
+      url: string
+      transport?: McpTransport
+      scope?: McpScope
+      headerName?: string
+      token?: string
+    }): Promise<McpActionResult> => ipcRenderer.invoke('mcp:add', opts),
+    remove: (name: string, scope?: McpScope): Promise<McpActionResult> =>
+      ipcRenderer.invoke('mcp:remove', name, scope),
+    login: (name: string): Promise<McpActionResult> => ipcRenderer.invoke('mcp:login', name),
+    logout: (name: string): Promise<McpActionResult> => ipcRenderer.invoke('mcp:logout', name)
   },
   git: {
     statuses: (items: { id: string; path: string }[]): Promise<Record<string, GitStatus>> =>
@@ -104,7 +121,12 @@ const api = {
       ipcRenderer.invoke('worktree:diff', projectPath, worktreePath),
     merge: (projectPath: string, branch: string): Promise<GitActionResult> =>
       ipcRenderer.invoke('worktree:merge', projectPath, branch),
-    remove: (projectPath: string, worktreePath: string, branch: string, force: boolean): Promise<GitActionResult> =>
+    remove: (
+      projectPath: string,
+      worktreePath: string,
+      branch: string,
+      force: boolean
+    ): Promise<GitActionResult> =>
       ipcRenderer.invoke('worktree:remove', projectPath, worktreePath, branch, force)
   }
 }

@@ -17,18 +17,27 @@ export function GitBadge({ status }: { status?: GitStatus }) {
         </span>
       )}
       {dirty > 0 && (
-        <span className="flex items-center gap-1 text-amber-400/90" title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'}`}>
+        <span
+          className="flex items-center gap-1 text-amber-400/90"
+          title={`${dirty} uncommitted change${dirty === 1 ? '' : 's'}`}
+        >
           <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
           {dirty}
         </span>
       )}
       {ahead > 0 && (
-        <span className="text-sky-400/90" title={`${ahead} commit${ahead === 1 ? '' : 's'} ahead of upstream`}>
+        <span
+          className="text-sky-400/90"
+          title={`${ahead} commit${ahead === 1 ? '' : 's'} ahead of upstream`}
+        >
           ↑{ahead}
         </span>
       )}
       {behind > 0 && (
-        <span className="text-sky-400/90" title={`${behind} commit${behind === 1 ? '' : 's'} behind upstream`}>
+        <span
+          className="text-sky-400/90"
+          title={`${behind} commit${behind === 1 ? '' : 's'} behind upstream`}
+        >
           ↓{behind}
         </span>
       )}

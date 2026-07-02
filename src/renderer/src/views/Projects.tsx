@@ -1,7 +1,14 @@
 import { useMemo, useState } from 'react'
-import type { GitStatus, LaunchKind, Project, ProjectType } from '@shared/types'
+import type { GitStatus, LaunchKind, Project, ProjectStatus, ProjectType } from '@shared/types'
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
 import { ProjectCard } from '@/components/ProjectCard'
+
+const STATUS_FILTERS: { id: ProjectStatus | 'all'; label: string }[] = [
+  { id: 'all', label: 'All' },
+  { id: 'active', label: 'Active' },
+  { id: 'idea', label: 'Ideas' },
+  { id: 'archived', label: 'Archived' }
+]
 
 export function Projects({
   projects,
@@ -21,10 +28,14 @@ export function Projects({
   onRescan: () => void
 }) {
   const [filter, setFilter] = useState<ProjectType | 'all'>('all')
+  const [status, setStatus] = useState<ProjectStatus | 'all'>('all')
   const [q, setQ] = useState('')
 
   const typesPresent = PROJECT_TYPES.filter((t) => projects.some((p) => p.type === t))
-  const visible = useMemo(() => {
+  // Base = type + search (status excluded), so status chip counts and the visible
+  // grid agree: a status chip reflects how many of the *currently-filtered* type
+  // match it, and clicking one can't produce a count that disagrees with the grid.
+  const base = useMemo(() => {
     const needle = q.trim().toLowerCase()
     return projects.filter(
       (p) =>
@@ -32,6 +43,8 @@ export function Projects({
         (needle === '' || `${p.name} ${p.stack}`.toLowerCase().includes(needle))
     )
   }, [projects, filter, q])
+  const statusCount = (s: ProjectStatus): number => base.filter((p) => p.status === s).length
+  const visible = useMemo(() => base.filter((p) => status === 'all' || p.status === status), [base, status])
 
   const chip = (active: boolean): string =>
     `rounded-full px-3 py-1 text-xs transition ${active ? 'bg-white/15 text-white' : 'bg-white/5 text-slate-400 hover:text-slate-200'}`
@@ -52,6 +65,14 @@ export function Projects({
           {typesPresent.map((t) => (
             <button key={t} onClick={() => setFilter(t)} className={chip(filter === t)}>
               {TYPE_META[t].label}
+            </button>
+          ))}
+        </div>
+        <div className="flex flex-wrap gap-1.5 border-l border-white/10 pl-2">
+          {STATUS_FILTERS.filter((s) => s.id === 'all' || statusCount(s.id) > 0).map((s) => (
+            <button key={s.id} onClick={() => setStatus(s.id)} className={chip(status === s.id)}>
+              {s.label}
+              {s.id !== 'all' && <span className="ml-1 text-slate-500">{statusCount(s.id)}</span>}
             </button>
           ))}
         </div>

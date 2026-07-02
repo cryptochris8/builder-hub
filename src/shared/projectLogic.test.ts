@@ -40,6 +40,16 @@ describe('compareProjects', () => {
   it('puts favorites first', () => {
     expect(compareProjects(proj({ favorite: true }), proj({ favorite: false }))).toBeLessThan(0)
   })
+  it('sinks archived below non-archived (but under favorite)', () => {
+    expect(compareProjects(proj({ status: 'active' }), proj({ status: 'archived' }))).toBeLessThan(0)
+    // favorite still wins over archived-ness
+    expect(
+      compareProjects(
+        proj({ favorite: true, status: 'archived' }),
+        proj({ favorite: false, status: 'active' })
+      )
+    ).toBeLessThan(0)
+  })
   it('then ranks most-recently-opened first', () => {
     expect(compareProjects(proj({ lastOpenedAt: 200 }), proj({ lastOpenedAt: 100 }))).toBeLessThan(0)
   })
@@ -61,7 +71,9 @@ describe('detectTypeFromFiles', () => {
   it('detects unreal from a .uproject', () => expect(detectTypeFromFiles(['Game.uproject'])).toBe('unreal'))
   it('detects roblox from default.project.json', () =>
     expect(detectTypeFromFiles(['default.project.json'])).toBe('roblox'))
-  it('detects mobile from pubspec.yaml', () => expect(detectTypeFromFiles(['pubspec.yaml'])).toBe('mobile-app'))
+  it('detects roblox from aftman.toml', () => expect(detectTypeFromFiles(['aftman.toml'])).toBe('roblox'))
+  it('detects mobile from pubspec.yaml', () =>
+    expect(detectTypeFromFiles(['pubspec.yaml'])).toBe('mobile-app'))
   it('detects hytopia from deps', () =>
     expect(detectTypeFromFiles(['package.json'], { dependencies: { hytopia: '^0.1' } })).toBe('hytopia'))
   it('detects crypto from ethers', () =>
@@ -101,12 +113,24 @@ describe('parseGitStatusV2', () => {
       '1 M. N... 100644 100644 100644 ccc ddd staged.ts',
       '? untracked.ts'
     ].join('\n')
-    expect(parseGitStatusV2(out)).toMatchObject({ branch: 'feature', ahead: 2, behind: 1, hasUpstream: true, dirty: 3 })
+    expect(parseGitStatusV2(out)).toMatchObject({
+      branch: 'feature',
+      ahead: 2,
+      behind: 1,
+      hasUpstream: true,
+      dirty: 3
+    })
   })
 
   it('handles a branch with no upstream (no branch.ab line)', () => {
     const out = ['# branch.head wip', '1 A. N... 000000 100644 100644 000 eee new.ts'].join('\n')
-    expect(parseGitStatusV2(out)).toMatchObject({ branch: 'wip', hasUpstream: false, ahead: 0, behind: 0, dirty: 1 })
+    expect(parseGitStatusV2(out)).toMatchObject({
+      branch: 'wip',
+      hasUpstream: false,
+      ahead: 0,
+      behind: 0,
+      dirty: 1
+    })
   })
 
   it('flags a detached HEAD with no branch name', () => {

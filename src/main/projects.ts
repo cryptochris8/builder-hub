@@ -112,6 +112,14 @@ function listDirSafe(dir: string): string[] {
   }
 }
 
+function listDirentsSafe(dir: string): import('fs').Dirent[] {
+  try {
+    return readdirSync(dir, { withFileTypes: true })
+  } catch {
+    return []
+  }
+}
+
 function detectType(dir: string): ProjectType {
   const entries = listDirSafe(dir)
   let pkg: { dependencies?: Record<string, string>; devDependencies?: Record<string, string> } | undefined
@@ -131,6 +139,7 @@ function looksLikeProject(dir: string): boolean {
     hasFile(dir, 'package.json') ||
     hasFile(dir, 'default.project.json') ||
     hasFile(dir, 'rokit.toml') ||
+    hasFile(dir, 'aftman.toml') ||
     hasFile(dir, 'pubspec.yaml') ||
     hasFile(dir, 'index.html')
   )
@@ -174,25 +183,39 @@ const SKIP_DIRS = new Set([
   'Cookies'
 ])
 
+// Scan the home dir for project folders. Adds one level of nesting: a top-level
+// folder that is itself a project is registered directly; a grouping folder that
+// is NOT a project (e.g. New-apps/, App-store/) has its immediate children
+// scanned so nested projects aren't missed. Never descends deeper than that, and
+// never into a real project's internals.
 function rescan(): RescanResult {
   const home = app.getPath('home')
   const known = new Set(allProjects().map((p) => p.path.toLowerCase()))
   let scanned = 0
   let added = 0
-  let dirents: import('fs').Dirent[] = []
-  try {
-    dirents = readdirSync(home, { withFileTypes: true })
-  } catch {
-    return { scanned, added }
-  }
-  for (const d of dirents) {
-    if (!d.isDirectory() || d.name.startsWith('.') || SKIP_DIRS.has(d.name)) continue
-    const dir = join(home, d.name)
-    if (!looksLikeProject(dir)) continue
+
+  const skip = (name: string): boolean => name.startsWith('.') || SKIP_DIRS.has(name)
+  const consider = (dir: string, name: string): void => {
     scanned++
-    if (known.has(dir.toLowerCase())) continue
-    insert({ name: d.name, path: dir, type: detectType(dir), stack: '' })
+    if (known.has(dir.toLowerCase())) return
+    insert({ name, path: dir, type: detectType(dir), stack: '' })
+    known.add(dir.toLowerCase())
     added++
+  }
+
+  for (const d of listDirentsSafe(home)) {
+    if (!d.isDirectory() || skip(d.name)) continue
+    const dir = join(home, d.name)
+    if (looksLikeProject(dir)) {
+      consider(dir, d.name)
+    } else {
+      // Grouping folder — look one level in for nested projects.
+      for (const c of listDirentsSafe(dir)) {
+        if (!c.isDirectory() || skip(c.name)) continue
+        const child = join(dir, c.name)
+        if (looksLikeProject(child)) consider(child, c.name)
+      }
+    }
   }
   return { scanned, added }
 }
@@ -269,7 +292,11 @@ function createProject(opts: CreateProjectOptions): CreateProjectResult {
     }
     mkdirSync(dir, { recursive: true })
 
-    writeFileSync(join(dir, 'CLAUDE.md'), buildProjectClaudeMd(opts.name, opts.type, opts.stack, true), 'utf8')
+    writeFileSync(
+      join(dir, 'CLAUDE.md'),
+      buildProjectClaudeMd(opts.name, opts.type, opts.stack, true),
+      'utf8'
+    )
     writeFileSync(
       join(dir, 'README.md'),
       `# ${opts.name}\n\n${TYPE_META[opts.type].label} project.${opts.stack ? ` Stack: ${opts.stack}.` : ''}\n\nScaffolded with Builder Hub.\n`,
@@ -380,7 +407,13 @@ function launchClaude(path: string): LaunchResult {
 function findChrome(): string | null {
   const candidates = [
     join(process.env['ProgramFiles'] ?? 'C:\\Program Files', 'Google', 'Chrome', 'Application', 'chrome.exe'),
-    join(process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)', 'Google', 'Chrome', 'Application', 'chrome.exe'),
+    join(
+      process.env['ProgramFiles(x86)'] ?? 'C:\\Program Files (x86)',
+      'Google',
+      'Chrome',
+      'Application',
+      'chrome.exe'
+    ),
     join(app.getPath('home'), 'AppData', 'Local', 'Google', 'Chrome', 'Application', 'chrome.exe')
   ]
   return candidates.find((p) => existsSync(p)) ?? null
@@ -437,7 +470,10 @@ async function launchRobloxPlay(input: string): Promise<LaunchResult> {
   } else {
     const m = s.match(/(?:games|places?)\/(\d+)/i) ?? s.match(/^(\d+)$/)
     if (!m) {
-      return { ok: false, error: "Couldn't find a place ID — use the game's roblox.com URL or its numeric place ID." }
+      return {
+        ok: false,
+        error: "Couldn't find a place ID — use the game's roblox.com URL or its numeric place ID."
+      }
     }
     deepLink = `roblox://experiences/start?placeId=${m[1]}`
   }

@@ -24,15 +24,25 @@ export function ProjectCard({
   onLaunch: (kind: LaunchKind, p: Project) => void
 }) {
   const meta = TYPE_META[project.type]
+  const archived = project.status === 'archived'
   return (
     <article
       onClick={() => onOpen(project)}
-      className="group flex cursor-pointer flex-col rounded-xl border border-white/5 bg-white/[0.02] p-4 transition hover:border-white/10 hover:bg-white/[0.04]"
+      className={`group flex cursor-pointer flex-col rounded-xl border border-white/5 bg-white/[0.02] p-4 transition hover:border-white/10 hover:bg-white/[0.04] ${archived ? 'opacity-55 hover:opacity-100' : ''}`}
     >
       <div className="mb-2 flex items-center justify-between gap-2">
         <span className="flex min-w-0 items-center gap-2 text-sm font-medium text-white">
           <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
           <span className="truncate">{project.name}</span>
+          {project.status !== 'active' && (
+            <span
+              className={`shrink-0 rounded px-1 py-0.5 text-[9px] uppercase tracking-wide ${
+                archived ? 'bg-white/5 text-slate-500' : 'bg-sky-500/15 text-sky-300'
+              }`}
+            >
+              {project.status}
+            </span>
+          )}
         </span>
         <button
           onClick={(e) => {

@@ -1,5 +1,12 @@
 import { useEffect, useRef, useState } from 'react'
-import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project, ProjectType, WorktreeInfo } from '@shared/types'
+import type {
+  ClaudeStatusEvent,
+  GitStatus,
+  LaunchKind,
+  Project,
+  ProjectType,
+  WorktreeInfo
+} from '@shared/types'
 import { normPath } from '@shared/sessionLogic'
 import { hub } from '@/lib/api'
 import { sendToClaudeTerminal } from '@/lib/terminalBus'
@@ -93,16 +100,19 @@ export default function App() {
   // Sweep stale entries periodically too — a killed external session never sends
   // SessionEnd, and the in-handler trim only runs when new events arrive.
   useEffect(() => {
-    const id = window.setInterval(() => {
-      const cutoff = Date.now() - 12 * 60 * 60 * 1000
-      setClaudeStatus((prev) => {
-        const stale = Object.keys(prev).filter((k) => prev[k].at < cutoff)
-        if (!stale.length) return prev
-        const next = { ...prev }
-        for (const k of stale) delete next[k]
-        return next
-      })
-    }, 15 * 60 * 1000)
+    const id = window.setInterval(
+      () => {
+        const cutoff = Date.now() - 12 * 60 * 60 * 1000
+        setClaudeStatus((prev) => {
+          const stale = Object.keys(prev).filter((k) => prev[k].at < cutoff)
+          if (!stale.length) return prev
+          const next = { ...prev }
+          for (const k of stale) delete next[k]
+          return next
+        })
+      },
+      15 * 60 * 1000
+    )
     return () => window.clearInterval(id)
   }, [])
 
@@ -379,7 +389,9 @@ export default function App() {
               key={n.id}
               onClick={() => setView(n.id)}
               className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm transition ${
-                view === n.id ? 'bg-white/10 text-white' : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
+                view === n.id
+                  ? 'bg-white/10 text-white'
+                  : 'text-slate-400 hover:bg-white/5 hover:text-slate-200'
               }`}
             >
               <span className="w-4 text-center text-slate-400">{n.icon}</span>
@@ -461,7 +473,7 @@ export default function App() {
                   onRescan={rescan}
                 />
               ) : (
-                <ConnectionsView />
+                <ConnectionsView notify={notify} />
               )}
             </div>
           )}

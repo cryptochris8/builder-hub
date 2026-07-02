@@ -56,10 +56,7 @@ export function NewProjectModal({
   const label = 'text-[11px] font-medium uppercase tracking-wide text-slate-500'
 
   return (
-    <div
-      className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-6"
-      onClick={onClose}
-    >
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
       <div
         className="max-h-full w-[560px] overflow-y-auto rounded-2xl border border-white/10 bg-[#0d1320] p-6 shadow-2xl"
         onClick={(e) => e.stopPropagation()}
@@ -139,11 +136,7 @@ export function NewProjectModal({
               Initialize git repo
             </label>
             <label className="flex cursor-pointer items-center gap-2">
-              <input
-                type="checkbox"
-                checked={openClaude}
-                onChange={(e) => setOpenClaude(e.target.checked)}
-              />
+              <input type="checkbox" checked={openClaude} onChange={(e) => setOpenClaude(e.target.checked)} />
               Open Claude when created
             </label>
           </div>
@@ -151,8 +144,8 @@ export function NewProjectModal({
           <p className="rounded-lg border border-white/5 bg-white/[0.02] px-3 py-2 text-[11px] text-slate-500">
             Seeds <span className="text-slate-300">CLAUDE.md</span> from the{' '}
             <span className="text-slate-300">{TYPE_META[type].label}</span> profile, plus{' '}
-            <span className="text-slate-300">.env.example</span>, README and .gitignore — so Claude
-            starts stack-aware.
+            <span className="text-slate-300">.env.example</span>, README and .gitignore — so Claude starts
+            stack-aware.
           </p>
 
           {error && (

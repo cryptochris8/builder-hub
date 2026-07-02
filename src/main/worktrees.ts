@@ -42,7 +42,8 @@ function run(cwd: string, args: string[]): Promise<RunResult> {
       'git',
       args,
       { cwd, timeout: RUN_TIMEOUT_MS, windowsHide: true, maxBuffer: 8 * 1024 * 1024 },
-      (error, stdout, stderr) => resolve({ ok: !error, out: stdout ?? '', err: (stderr || error?.message) ?? '' })
+      (error, stdout, stderr) =>
+        resolve({ ok: !error, out: stdout ?? '', err: (stderr || error?.message) ?? '' })
     )
   })
 }
@@ -118,7 +119,8 @@ const DETACHED_MSG =
 
 async function diff(projectPath: string, worktreePath: string): Promise<WorktreeDiffResult> {
   if (!isRegisteredProject(projectPath)) return { ok: false, error: 'Not a registered project' }
-  if (!(await isKnownWorktree(projectPath, worktreePath))) return { ok: false, error: 'Unknown task worktree' }
+  if (!(await isKnownWorktree(projectPath, worktreePath)))
+    return { ok: false, error: 'Unknown task worktree' }
   const base = await mainBranch(projectPath)
   if (!base) return { ok: false, error: DETACHED_MSG }
   if (base.startsWith(WORKTREE_BRANCH_PREFIX)) {
@@ -160,7 +162,10 @@ async function merge(projectPath: string, branch: string): Promise<GitActionResu
   // throw away their conflict-resolution work.
   const inMerge = await run(projectPath, ['rev-parse', '-q', '--verify', 'MERGE_HEAD'])
   if (inMerge.ok) {
-    return { ok: false, error: 'The main checkout has an unfinished merge in progress — finish or abort it first.' }
+    return {
+      ok: false,
+      error: 'The main checkout has an unfinished merge in progress — finish or abort it first.'
+    }
   }
   const res = await run(projectPath, ['merge', '--no-ff', branch, '-m', `Merge task ${branch}`])
   if (!res.ok) {
@@ -180,7 +185,8 @@ async function remove(
 ): Promise<GitActionResult> {
   if (!isRegisteredProject(projectPath)) return { ok: false, error: 'Not a registered project' }
   if (!branch.startsWith(WORKTREE_BRANCH_PREFIX)) return { ok: false, error: 'Not a hub task branch' }
-  if (!(await isKnownWorktree(projectPath, worktreePath))) return { ok: false, error: 'Unknown task worktree' }
+  if (!(await isKnownWorktree(projectPath, worktreePath)))
+    return { ok: false, error: 'Unknown task worktree' }
 
   // Windows can't delete a process's cwd — evict the task's terminal sessions
   // first, then retry briefly while ConPTY teardown releases the handle.

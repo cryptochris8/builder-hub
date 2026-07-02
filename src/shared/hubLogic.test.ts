@@ -131,7 +131,13 @@ describe('buildRegistryMarkdown', () => {
   it('lists every project with path, type label, stack and notes', () => {
     const md = buildRegistryMarkdown(
       [
-        proj({ name: 'Squishy', type: 'roblox', path: 'C:\\Users\\chris\\Roblox-squishy', stack: 'Rojo · Luau', notes: 'ship it' }),
+        proj({
+          name: 'Squishy',
+          type: 'roblox',
+          path: 'C:\\Users\\chris\\Roblox-squishy',
+          stack: 'Rojo · Luau',
+          notes: 'ship it'
+        }),
         proj({ name: 'Hub', type: 'web-app', path: 'C:\\Users\\chris\\builder-hub' })
       ],
       '2026-07-01'

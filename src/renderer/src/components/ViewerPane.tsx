@@ -91,14 +91,23 @@ export function ViewerPane({ url, active }: { url: string; active: boolean }) {
           spellCheck={false}
           className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-200 outline-none focus:border-indigo-400"
         />
-        <button onClick={() => hub.launch.chrome(addr)} className={btn} title="Open this URL in Google Chrome">
+        <button
+          onClick={() => hub.launch.chrome(addr)}
+          className={btn}
+          title="Open this URL in Google Chrome"
+        >
           Chrome ↗
         </button>
       </div>
       <div className="relative min-h-0 flex-1">
-        <div ref={hostRef} className="absolute inset-0 overflow-hidden rounded-lg border border-white/10 bg-white" />
+        <div
+          ref={hostRef}
+          className="absolute inset-0 overflow-hidden rounded-lg border border-white/10 bg-white"
+        />
         {loading && (
-          <div className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white">loading…</div>
+          <div className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white">
+            loading…
+          </div>
         )}
       </div>
     </div>

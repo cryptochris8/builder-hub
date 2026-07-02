@@ -122,13 +122,17 @@ export function DiffPane({
     <div className="flex h-full min-h-0 flex-col rounded-lg border border-white/10 bg-white/[0.02]">
       <div className="flex flex-wrap items-center gap-2 border-b border-white/5 px-3 py-2">
         <span className="min-w-0 truncate text-xs text-slate-300" title={worktreePath}>
-          <span className="text-slate-500">⇄</span> {branch} <span className="text-slate-600">vs {base || '…'}</span>
+          <span className="text-slate-500">⇄</span> {branch}{' '}
+          <span className="text-slate-600">vs {base || '…'}</span>
         </span>
         {files && (
           <span className="text-[11px]">
             <span className="text-emerald-400">+{totalAdds}</span>{' '}
             <span className="text-rose-400">−{totalDels}</span>
-            <span className="text-slate-600"> in {files.length} file{files.length === 1 ? '' : 's'}</span>
+            <span className="text-slate-600">
+              {' '}
+              in {files.length} file{files.length === 1 ? '' : 's'}
+            </span>
           </span>
         )}
         <span className="ml-auto flex gap-1.5">

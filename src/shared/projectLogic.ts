@@ -14,9 +14,13 @@ export function sanitizeFolder(name: string): string {
   )
 }
 
-/** Registry sort order: favorites first, then most-recently-opened, then name. */
+/** Registry sort order: favorites first, then non-archived, then
+ *  most-recently-opened, then name. Archived work sinks to the bottom. */
 export function compareProjects(a: Project, b: Project): number {
   if (a.favorite !== b.favorite) return a.favorite ? -1 : 1
+  const aArch = a.status === 'archived'
+  const bArch = b.status === 'archived'
+  if (aArch !== bArch) return aArch ? 1 : -1
   const al = a.lastOpenedAt ?? 0
   const bl = b.lastOpenedAt ?? 0
   if (al !== bl) return bl - al
@@ -47,7 +51,13 @@ export function recoverRegistry(
 }
 
 const ENV_BY_TYPE: Partial<Record<ProjectType, string[]>> = {
-  'web-app': ['DATABASE_URL=', 'STRIPE_SECRET_KEY=', 'STRIPE_WEBHOOK_SECRET=', 'RESEND_API_KEY=', 'SENTRY_DSN='],
+  'web-app': [
+    'DATABASE_URL=',
+    'STRIPE_SECRET_KEY=',
+    'STRIPE_WEBHOOK_SECRET=',
+    'RESEND_API_KEY=',
+    'SENTRY_DSN='
+  ],
   'mobile-app': ['FIREBASE_API_KEY=', 'ADMOB_APP_ID=', 'REVENUECAT_IOS_API_KEY='],
   'ai-content': ['OPENAI_API_KEY=', 'ELEVENLABS_API_KEY=', 'FAL_KEY=', 'RECRAFT_KEY='],
   'crypto-web3': [

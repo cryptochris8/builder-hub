@@ -1,0 +1,5 @@
+singleQuote: true
+semi: false
+printWidth: 110
+trailingComma: none
+endOfLine: auto

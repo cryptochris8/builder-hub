@@ -26,7 +26,13 @@ export function buildHookCommand(): string {
 /** Hook events the Hub listens for and the state they imply. PostToolUse flips
  *  waiting → working the moment an approved tool runs (there is no explicit
  *  "permission granted" hook event). */
-export const HUB_HOOK_EVENTS = ['UserPromptSubmit', 'PostToolUse', 'Stop', 'Notification', 'SessionEnd'] as const
+export const HUB_HOOK_EVENTS = [
+  'UserPromptSubmit',
+  'PostToolUse',
+  'Stop',
+  'Notification',
+  'SessionEnd'
+] as const
 
 interface HookEntry {
   matcher?: string
@@ -58,7 +64,10 @@ export function ensureHubHooks(settingsJson: string): { next: string; changed: b
   if (typeof settings !== 'object' || settings === null || Array.isArray(settings)) {
     return { next: settingsJson, changed: false, error: 'settings.json is not an object' }
   }
-  if ('hooks' in settings && (typeof settings.hooks !== 'object' || settings.hooks === null || Array.isArray(settings.hooks))) {
+  if (
+    'hooks' in settings &&
+    (typeof settings.hooks !== 'object' || settings.hooks === null || Array.isArray(settings.hooks))
+  ) {
     return { next: settingsJson, changed: false, error: 'settings.hooks is not an object' }
   }
   const hooks: Record<string, HookEntry[]> = (settings.hooks as Record<string, HookEntry[]>) ?? {}
@@ -242,7 +251,11 @@ export function parseUnifiedDiff(diff: string): DiffFile[] {
 /** Canonical cwd key: backslashes, no trailing separator, lowercased. Use this
  *  EVERYWHERE a session cwd is keyed or compared — git porcelain emits forward
  *  slashes on Windows while path.join()/hook payloads emit backslashes. */
-export const normPath = (p: string): string => p.replace(/[\\/]+$/, '').replace(/\//g, '\\').toLowerCase()
+export const normPath = (p: string): string =>
+  p
+    .replace(/[\\/]+$/, '')
+    .replace(/\//g, '\\')
+    .toLowerCase()
 
 const norm = normPath
 

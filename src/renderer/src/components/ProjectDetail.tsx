@@ -74,7 +74,8 @@ export function ProjectDetail({
       notify(res.error ?? 'Could not remove — use the Diff tab to review or discard it', true)
     }
   }
-  const field = 'mt-1 w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-indigo-400'
+  const field =
+    'mt-1 w-full rounded-md border border-white/10 bg-white/5 px-2 py-1.5 text-sm text-slate-100 outline-none focus:border-indigo-400'
   const label = 'text-[11px] font-medium uppercase tracking-wide text-slate-500'
 
   return (

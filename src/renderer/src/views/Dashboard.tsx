@@ -85,9 +85,7 @@ export function Dashboard({
 
       {sessions.length > 0 && (
         <div>
-          <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">
-            Claude sessions
-          </h2>
+          <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">Claude sessions</h2>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-1">
             {sessions.map((s) => {
               const meta = STATE_META[s.state] ?? STATE_META.done
@@ -138,7 +136,10 @@ export function Dashboard({
 
       <div className="flex flex-wrap gap-2">
         {counts.map(({ t, n }) => (
-          <span key={t} className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-slate-300">
+          <span
+            key={t}
+            className="flex items-center gap-2 rounded-lg border border-white/5 bg-white/[0.02] px-3 py-1.5 text-xs text-slate-300"
+          >
             <span className={`h-2 w-2 rounded-full ${TYPE_META[t].dot}`} />
             {TYPE_META[t].label}
             <span className="text-slate-500">{n}</span>
@@ -150,13 +151,21 @@ export function Dashboard({
         <div>
           <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">Recent</h2>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-1">
-            {recent.length ? recent.map((p) => <Row key={p.id} p={p} />) : <Empty text="Open a project to see it here." />}
+            {recent.length ? (
+              recent.map((p) => <Row key={p.id} p={p} />)
+            ) : (
+              <Empty text="Open a project to see it here." />
+            )}
           </div>
         </div>
         <div>
           <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">Favorites</h2>
           <div className="rounded-xl border border-white/5 bg-white/[0.02] p-1">
-            {favorites.length ? favorites.map((p) => <Row key={p.id} p={p} />) : <Empty text="Star a project to pin it here." />}
+            {favorites.length ? (
+              favorites.map((p) => <Row key={p.id} p={p} />)
+            ) : (
+              <Empty text="Star a project to pin it here." />
+            )}
           </div>
         </div>
       </div>

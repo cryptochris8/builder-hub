@@ -78,15 +78,7 @@ export interface RescanResult {
 }
 
 export type LaunchKind =
-  | 'folder'
-  | 'editor'
-  | 'terminal'
-  | 'claude'
-  | 'viewer'
-  | 'files'
-  | 'shell'
-  | 'studio'
-  | 'play'
+  'folder' | 'editor' | 'terminal' | 'claude' | 'viewer' | 'files' | 'shell' | 'studio' | 'play'
 
 // Files pane (in-app file browser + preview)
 export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'other'
@@ -214,4 +206,50 @@ export interface McpServerInfo {
   target: string
   scope: 'user' | 'project'
   project?: string
+}
+
+// Live MCP status from `claude mcp list` (health-checked).
+export type McpStatus = 'connected' | 'needs-auth' | 'failed' | 'pending' | 'degraded' | 'unknown'
+
+export interface McpLiveServer {
+  name: string
+  /** URL (http/sse) or command (stdio) */
+  target: string
+  status: McpStatus
+  /** raw status text from the CLI, e.g. "Connected · tools fetch failed" */
+  statusText: string
+}
+
+export interface McpListLive {
+  ok: boolean
+  servers: McpLiveServer[]
+  error?: string
+}
+
+export type McpTransport = 'http' | 'sse' | 'stdio'
+export type McpScope = 'user' | 'project' | 'local'
+
+// A one-click catalog entry (confirmed remote endpoints only).
+export interface McpCatalogEntry {
+  name: string
+  label: string
+  url: string
+  transport: McpTransport
+  /** short description of what it gives Claude */
+  blurb: string
+  /** 'oauth' = add then Login; 'header' = optional token via header; 'none' = works as-is */
+  auth: 'oauth' | 'header' | 'none'
+  /** header name when auth === 'header' (e.g. "Authorization", "CONTEXT7_API_KEY") */
+  headerName?: string
+  /** how the token is used, for the input hint */
+  tokenHint?: string
+  /** a caution to surface in the UI (write access, real funds, token cost…) */
+  warn?: string
+}
+
+export interface McpActionResult {
+  ok: boolean
+  /** stdout/stderr worth showing */
+  output?: string
+  error?: string
 }
