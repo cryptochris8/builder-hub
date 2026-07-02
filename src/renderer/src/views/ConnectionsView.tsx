@@ -8,9 +8,11 @@ const GITHUB_CMD =
 export function ConnectionsView() {
   const [servers, setServers] = useState<McpServerInfo[] | null>(null)
   const [copied, setCopied] = useState(false)
+  const [hooks, setHooks] = useState<{ listening: boolean; port: number; error?: string; installError?: string } | null>(null)
 
   useEffect(() => {
     hub.mcp.list().then(setServers)
+    hub.claude.hooksInfo().then(setHooks)
   }, [])
 
   const copy = (): void => {
@@ -39,6 +41,34 @@ export function ConnectionsView() {
           (Gmail, Google Drive, Calendar, etc.) <b>sync automatically</b> into Claude Code when you're
           signed in with the same account — so they work in the embedded terminal too. The Google /
           Microsoft ones must be authenticated on claude.ai first (their sign-in can't run from the CLI).
+        </div>
+      </section>
+
+      <section>
+        <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">
+          Session status hooks
+        </h2>
+        <div className="flex items-center gap-3 rounded-xl border border-white/5 bg-white/[0.02] px-4 py-3 text-sm">
+          {hooks === null ? (
+            <span className="text-slate-500">Checking…</span>
+          ) : hooks.listening && !hooks.installError ? (
+            <>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" />
+              <span className="text-slate-300">
+                Live — Claude Code reports working / waiting / done to the Hub on port {hooks.port} (status
+                dots, Dashboard rail, desktop alerts).
+              </span>
+            </>
+          ) : (
+            <>
+              <span className="h-2 w-2 shrink-0 rounded-full bg-rose-400" />
+              <span className="min-w-0 text-slate-300">
+                Status board is offline —{' '}
+                <span className="text-rose-300">{hooks.installError ?? hooks.error ?? 'unknown reason'}</span>
+                {hooks.installError ? ' (fix ~/.claude/settings.json and restart the Hub)' : ''}
+              </span>
+            </>
+          )}
         </div>
       </section>
 

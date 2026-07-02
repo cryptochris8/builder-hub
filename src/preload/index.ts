@@ -1,8 +1,10 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
+  ClaudeStatusEvent,
   CreateProjectOptions,
   CreateProjectResult,
+  GitActionResult,
   GitStatus,
   LaunchResult,
   ListDirResult,
@@ -13,7 +15,10 @@ import type {
   PtyData,
   PtyExit,
   ReadTextResult,
-  RescanResult
+  RescanResult,
+  WorktreeCreateResult,
+  WorktreeDiffResult,
+  WorktreeInfo
 } from '../shared/types'
 
 // The single, typed bridge between the renderer (UI) and the main process.
@@ -80,6 +85,27 @@ const api = {
   git: {
     statuses: (items: { id: string; path: string }[]): Promise<Record<string, GitStatus>> =>
       ipcRenderer.invoke('git:statuses', items)
+  },
+  claude: {
+    /** live session-state events fed by Claude Code hooks (working/waiting/done/ended) */
+    onStatus: (cb: (e: ClaudeStatusEvent) => void): (() => void) => {
+      const h = (_e: IpcRendererEvent, p: ClaudeStatusEvent): void => cb(p)
+      ipcRenderer.on('claude:status', h)
+      return () => ipcRenderer.removeListener('claude:status', h)
+    },
+    hooksInfo: (): Promise<{ listening: boolean; port: number; error?: string; installError?: string }> =>
+      ipcRenderer.invoke('hooks:info')
+  },
+  worktrees: {
+    list: (projectPath: string): Promise<WorktreeInfo[]> => ipcRenderer.invoke('worktree:list', projectPath),
+    create: (projectPath: string, task: string): Promise<WorktreeCreateResult> =>
+      ipcRenderer.invoke('worktree:create', projectPath, task),
+    diff: (projectPath: string, worktreePath: string): Promise<WorktreeDiffResult> =>
+      ipcRenderer.invoke('worktree:diff', projectPath, worktreePath),
+    merge: (projectPath: string, branch: string): Promise<GitActionResult> =>
+      ipcRenderer.invoke('worktree:merge', projectPath, branch),
+    remove: (projectPath: string, worktreePath: string, branch: string, force: boolean): Promise<GitActionResult> =>
+      ipcRenderer.invoke('worktree:remove', projectPath, worktreePath, branch, force)
   }
 }
 

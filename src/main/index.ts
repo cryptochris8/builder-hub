@@ -8,9 +8,24 @@ import { registerMcpIpc } from './mcp'
 import { registerGitIpc } from './git'
 import { isAllowedPath, registerFilesIpc, registerHubfileProtocol, registerHubfileScheme } from './files'
 import { registerHubContext } from './hubContext'
+import { ensureHooksInstalled, registerHookIpc, startHookServer, stopHookServer } from './hookServer'
+import { registerWorktreeIpc } from './worktrees'
 
 // Custom scheme privileges must be declared before the app is ready.
 registerHubfileScheme()
+
+// One Hub only: the hook listener binds a fixed port, and a second instance
+// would silently lose the status-board feature. Focus the first instead.
+if (!app.requestSingleInstanceLock()) {
+  app.quit()
+}
+app.on('second-instance', () => {
+  const win = BrowserWindow.getAllWindows()[0]
+  if (win) {
+    if (win.isMinimized()) win.restore()
+    win.focus()
+  }
+})
 
 function createWindow(): void {
   const mainWindow = new BrowserWindow({
@@ -80,6 +95,9 @@ app.on('web-contents-created', (_e, contents) => {
 })
 
 app.whenReady().then(() => {
+  // Must match electron-builder.yml appId, or packaged-build toasts won't show.
+  if (process.platform === 'win32') app.setAppUserModelId('com.athletedomains.builderhub')
+
   ipcMain.handle('ping', () => 'pong')
 
   // Local-first data: seed the registry from the curated list on first run.
@@ -93,6 +111,13 @@ app.whenReady().then(() => {
   registerGitIpc()
   registerFilesIpc()
   registerHubfileProtocol()
+  registerWorktreeIpc()
+  // Cockpit: Claude Code hooks POST session state to a localhost listener, and
+  // the hook commands are (idempotently) wired into ~/.claude/settings.json.
+  registerHookIpc()
+  startHookServer()
+  const hookInstall = ensureHooksInstalled()
+  if (hookInstall.error) console.error('[builder-hub] hook wiring failed:', hookInstall.error)
 
   createWindow()
 
@@ -106,4 +131,7 @@ app.on('window-all-closed', () => {
 })
 
 // Don't leave embedded terminal processes running after the app exits.
-app.on('will-quit', killAllPtys)
+app.on('will-quit', () => {
+  killAllPtys()
+  stopHookServer()
+})

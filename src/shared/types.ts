@@ -157,6 +157,56 @@ export interface CreateProjectResult {
   error?: string
 }
 
+// Claude session status (Tier 2 cockpit) — fed by Claude Code hooks POSTing to
+// the Hub's localhost listener. Keyed by session cwd.
+export type SessionState = 'working' | 'waiting' | 'done'
+
+export interface ClaudeStatusEvent {
+  /** the session's working directory (project folder or task worktree) */
+  cwd: string
+  state: SessionState | 'ended'
+  /** notification text when state === 'waiting' (permission prompt / idle) */
+  message?: string
+  /** Claude Code session id — guards against two sessions in one cwd clobbering each other */
+  sessionId?: string
+  at: number
+}
+
+// Git worktree task sessions (Tier 2 cockpit)
+export interface WorktreeInfo {
+  path: string
+  /** short branch name, e.g. hub/fix-login */
+  branch: string
+  /** task name derived from the branch (hub/ prefix stripped) */
+  task: string
+}
+
+export interface WorktreeCreateResult {
+  ok: boolean
+  path?: string
+  branch?: string
+  error?: string
+}
+
+export interface WorktreeDiffResult {
+  ok: boolean
+  /** unified diff of the worktree (incl. uncommitted) against its base */
+  diff?: string
+  /** untracked file paths (not part of the diff) */
+  untracked?: string[]
+  /** what the diff is measured against, e.g. "main" */
+  baseBranch?: string
+  truncated?: boolean
+  error?: string
+}
+
+export interface GitActionResult {
+  ok: boolean
+  /** stdout/stderr worth showing (e.g. merge summary or conflict text) */
+  output?: string
+  error?: string
+}
+
 // MCP / connectors overview (Connections panel)
 export interface McpServerInfo {
   name: string

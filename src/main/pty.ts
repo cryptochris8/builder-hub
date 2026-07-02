@@ -5,11 +5,13 @@ import { spawn } from '@homebridge/node-pty-prebuilt-multiarch'
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch'
 import { randomUUID } from 'crypto'
 import { registryFilePath } from './hubContext'
+import { HUB_HOOK_PORT, normPath } from '../shared/sessionLogic'
 import type { PtyCreateOptions } from '../shared/types'
 
 interface Session {
   proc: IPty
   wc: WebContents
+  cwd: string
 }
 
 const sessions = new Map<string, Session>()
@@ -61,6 +63,26 @@ export function killAllPtys(): void {
   sessions.clear()
 }
 
+// Kill every PTY whose cwd is (inside) the given directory. Windows can't delete
+// a directory that is any process's cwd, so worktree removal must evict its
+// sessions first. The renderer still gets pty:exit via onExit → tab shows ended.
+export function killPtysUnder(dir: string): number {
+  const root = normPath(dir)
+  let killed = 0
+  for (const [id, s] of sessions) {
+    const cwd = normPath(s.cwd)
+    if (cwd !== root && !cwd.startsWith(root + '\\')) continue
+    try {
+      s.proc.kill()
+    } catch {
+      /* already gone */
+    }
+    sessions.delete(id)
+    killed++
+  }
+  return killed
+}
+
 export function registerPtyIpc(): void {
   ipcMain.handle('pty:create', (e, opts: PtyCreateOptions): string => {
     // node-pty throws opaquely (e.g. "error code: 267") when the cwd is gone —
@@ -82,9 +104,10 @@ export function registerPtyIpc(): void {
     delete env.COLUMNS
     delete env.LINES
     // Let anything in the session (Claude especially) know it's running inside the
-    // Hub and where the full project registry lives.
+    // Hub, where the full project registry lives, and where hook posts should go.
     env.BUILDER_HUB = '1'
     env.BUILDER_HUB_PROJECTS = registryFilePath()
+    env.BUILDER_HUB_PORT = String(HUB_HOOK_PORT)
 
     const proc = spawn(shell, args, {
       name: 'xterm-256color',
@@ -102,7 +125,7 @@ export function registerPtyIpc(): void {
       sessions.delete(id)
     })
 
-    sessions.set(id, { proc, wc })
+    sessions.set(id, { proc, wc, cwd: opts.cwd })
     return id
   })
 

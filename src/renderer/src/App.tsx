@@ -1,7 +1,10 @@
 import { useEffect, useRef, useState } from 'react'
-import type { GitStatus, LaunchKind, Project, ProjectType } from '@shared/types'
+import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project, ProjectType, WorktreeInfo } from '@shared/types'
+import { normPath } from '@shared/sessionLogic'
 import { hub } from '@/lib/api'
 import { sendToClaudeTerminal } from '@/lib/terminalBus'
+import { tabCwd } from '@/views/WorkspaceView'
+import type { WorkspaceTabKind } from '@/views/WorkspaceView'
 import { Dashboard } from '@/views/Dashboard'
 import { Projects } from '@/views/Projects'
 import { WorkspaceView, type WorkspaceTab } from '@/views/WorkspaceView'
@@ -43,12 +46,75 @@ export default function App() {
   const [activeKey, setActiveKey] = useState<string | null>(null)
   const [showNew, setShowNew] = useState(false)
   const [loading, setLoading] = useState(true)
+  // Bumped whenever a task worktree is removed → ProjectDetail refetches its list.
+  const [worktreesVersion, setWorktreesVersion] = useState(0)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const timer = useRef<number | undefined>(undefined)
   // Tabs whose terminal session ended/failed — openClaude replaces these instead
   // of focusing them. A ref (not state): only consulted inside handlers, and refs
   // can't go stale across awaits the way a captured state value can.
   const deadTabs = useRef<Set<string>>(new Set())
+  // Live Claude session states (fed by Claude Code hooks via main), keyed by
+  // lowercased session cwd. Powers tab dots, the sidebar badge, and the rail.
+  const [claudeStatus, setClaudeStatus] = useState<Record<string, ClaudeStatusEvent>>({})
+
+  useEffect(() => {
+    return hub.claude.onStatus((e) => {
+      const key = normPath(e.cwd)
+      setClaudeStatus((prev) => {
+        const cur = prev[key]
+        // Session-id guards: two sessions can share a cwd (embedded tab + an
+        // external terminal). Don't let one session's ended/done clobber the
+        // other's live working/waiting state.
+        if (e.state === 'ended' && cur && cur.sessionId && e.sessionId && cur.sessionId !== e.sessionId) {
+          return prev
+        }
+        if (
+          e.state === 'done' &&
+          cur &&
+          (cur.state === 'working' || cur.state === 'waiting') &&
+          cur.sessionId &&
+          e.sessionId &&
+          cur.sessionId !== e.sessionId
+        ) {
+          return prev
+        }
+        const next = { ...prev }
+        if (e.state === 'ended') delete next[key]
+        else next[key] = e
+        // Trim anything ancient so the map can't grow unboundedly.
+        const cutoff = Date.now() - 12 * 60 * 60 * 1000
+        for (const k of Object.keys(next)) if (next[k].at < cutoff) delete next[k]
+        return next
+      })
+    })
+  }, [])
+
+  // Sweep stale entries periodically too — a killed external session never sends
+  // SessionEnd, and the in-handler trim only runs when new events arrive.
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      const cutoff = Date.now() - 12 * 60 * 60 * 1000
+      setClaudeStatus((prev) => {
+        const stale = Object.keys(prev).filter((k) => prev[k].at < cutoff)
+        if (!stale.length) return prev
+        const next = { ...prev }
+        for (const k of stale) delete next[k]
+        return next
+      })
+    }, 15 * 60 * 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const clearStatusFor = (cwd: string): void => {
+    const key = normPath(cwd)
+    setClaudeStatus((prev) => {
+      if (!(key in prev)) return prev
+      const next = { ...prev }
+      delete next[key]
+      return next
+    })
+  }
 
   const notify = (msg: string, err = false): void => {
     setToast({ msg, err })
@@ -112,28 +178,72 @@ export default function App() {
     void onUpdate(p.id, { favorite: !p.favorite })
   }
 
-  // Open (or focus) an embedded Claude Code session for a project. The dedup runs
-  // inside the functional updater so rapid double-triggers (or Send-to-Claude racing
-  // a click) can't slip past a stale `tabs` closure and spawn two PTYs. A tab whose
-  // session ended is replaced with a fresh one (new key → clean remount).
-  const openClaude = async (p: Project): Promise<void> => {
+  // Open (or focus) an embedded Claude Code session for a project — optionally in
+  // a task worktree (cwd/task set). The dedup runs inside the functional updater so
+  // rapid double-triggers (or Send-to-Claude racing a click) can't slip past a stale
+  // `tabs` closure and spawn two PTYs. A tab whose session ended is replaced with a
+  // fresh one (new key → clean remount).
+  const openClaude = async (p: Project, opts?: { cwd: string; task: string }): Promise<void> => {
     const ctx = await hub.projects.ensureContext(p.id) // seed CLAUDE.md BEFORE the PTY spawns
     if (ctx.seeded) notify('Seeded CLAUDE.md so Claude knows your stack')
+    const cwd = normPath(opts?.cwd ?? p.path)
+    // Key hoisted OUT of the updater: StrictMode double-invokes updaters, and two
+    // Date.now() calls straddling a ms tick would desync activeKey from the tab.
+    const key = `claude:${p.id}:${opts?.task ?? 'main'}:${Date.now()}`
     setTabs((prev) => {
-      const existing = prev.find((t) => t.kind === 'claude' && t.project.path === p.path)
+      const existing = prev.find((t) => t.kind === 'claude' && normPath(tabCwd(t)) === cwd)
       if (existing && !deadTabs.current.has(existing.key)) {
         setActiveKey(existing.key)
         return prev
       }
       if (existing) deadTabs.current.delete(existing.key)
-      const key = `claude:${p.id}:${Date.now()}`
       setActiveKey(key)
       const rest = existing ? prev.filter((t) => t.key !== existing.key) : prev
-      return [...rest, { key, kind: 'claude', project: p }]
+      return [...rest, { key, kind: 'claude', project: p, cwd: opts?.cwd, task: opts?.task }]
     })
     setView('workspace')
     await hub.projects.touch(p.id) // mark recently-opened → surfaces in Dashboard "Recent"
     await refresh()
+  }
+
+  // Open (or focus) the diff-review tab for a task worktree.
+  const openDiff = (p: Project, wt: WorktreeInfo): void => {
+    const key = `diff:${p.id}:${wt.task}`
+    setTabs((prev) => {
+      if (prev.some((t) => t.key === key)) {
+        setActiveKey(key)
+        return prev
+      }
+      setActiveKey(key)
+      return [...prev, { key, kind: 'diff', project: p, cwd: wt.path, task: wt.task }]
+    })
+    setView('workspace')
+  }
+
+  // A task worktree was merged/discarded — close every tab that pointed at it,
+  // and let ProjectDetail know its task list is stale.
+  const onTaskRemoved = (worktreePath: string): void => {
+    const gone = normPath(worktreePath)
+    clearStatusFor(worktreePath)
+    setWorktreesVersion((v) => v + 1)
+    setTabs((prev) => {
+      const next = prev.filter((t) => normPath(tabCwd(t)) !== gone)
+      setActiveKey((cur) =>
+        cur && next.some((t) => t.key === cur) ? cur : (next[next.length - 1]?.key ?? null)
+      )
+      return next
+    })
+  }
+
+  // From the Dashboard session rail: jump to the tab running that session.
+  const focusSession = (cwd: string): void => {
+    const target = tabs.find((t) => t.kind === 'claude' && normPath(tabCwd(t)) === normPath(cwd))
+    if (target) {
+      setActiveKey(target.key)
+      setView('workspace')
+    } else {
+      notify('That session runs outside the Hub (no tab here)')
+    }
   }
 
   // Open an embedded browser tab for a project.
@@ -146,13 +256,13 @@ export default function App() {
 
   // Open (or focus) the in-app file browser for a project (dedup in the updater).
   const openFiles = (p: Project): void => {
+    const key = `files:${p.id}:${Date.now()}` // hoisted — see openClaude
     setTabs((prev) => {
       const existing = prev.find((t) => t.kind === 'files' && t.project.path === p.path)
       if (existing) {
         setActiveKey(existing.key)
         return prev
       }
-      const key = `files:${p.id}:${Date.now()}`
       setActiveKey(key)
       return [...prev, { key, kind: 'files', project: p }]
     })
@@ -167,15 +277,29 @@ export default function App() {
     setView('workspace')
   }
 
-  // From the Files pane: paste text (a quoted file path) into the project's Claude
-  // session — opening/focusing it first. The terminal bus queues until the PTY is up.
+  // From the Files pane: paste text (a quoted file path) into a Claude session
+  // for this project. Prefer a session that's already open (the active tab first,
+  // then a lone open one — including task sessions) over spawning the main one.
   const sendToClaude = (p: Project, text: string): void => {
+    const live = tabs.filter(
+      (t) => t.kind === 'claude' && t.project.id === p.id && !deadTabs.current.has(t.key)
+    )
+    const target = live.find((t) => t.key === activeKey) ?? (live.length === 1 ? live[0] : undefined)
+    if (target) {
+      setActiveKey(target.key)
+      setView('workspace')
+      sendToClaudeTerminal(tabCwd(target), text)
+      return
+    }
     void openClaude(p)
     sendToClaudeTerminal(p.path, text)
   }
 
   const closeTab = (key: string): void => {
     deadTabs.current.delete(key)
+    // Closing a Claude tab kills its PTY — drop its (now stale) status entry.
+    const tab = tabs.find((t) => t.key === key)
+    if (tab && tab.kind === 'claude') clearStatusFor(tabCwd(tab))
     setTabs((prev) => {
       const next = prev.filter((t) => t.key !== key)
       setActiveKey((cur) => (cur === key ? (next[next.length - 1]?.key ?? null) : cur))
@@ -183,8 +307,11 @@ export default function App() {
     })
   }
 
-  const markTabDead = (key: string): void => {
+  // Only a CLAUDE tab's death clears status — a shell exiting in the same cwd
+  // must not wipe the live Claude session's dot.
+  const markTabDead = (key: string, cwd: string, kind: WorkspaceTabKind): void => {
     deadTabs.current.add(key)
+    if (kind === 'claude') clearStatusFor(cwd)
   }
 
   const onCreated = async (project: Project, withClaude: boolean): Promise<void> => {
@@ -225,6 +352,14 @@ export default function App() {
     else void refresh()
   }
 
+  // Sidebar badge only pulses for sessions that actually have a Hub tab —
+  // external sessions still show on the Dashboard rail, but a badge on
+  // "Workspace" must point at something in the workspace.
+  const openClaudeCwds = new Set(tabs.filter((t) => t.kind === 'claude').map((t) => normPath(tabCwd(t))))
+  const anyWaiting = Object.entries(claudeStatus).some(
+    ([k, s]) => s.state === 'waiting' && openClaudeCwds.has(k)
+  )
+
   return (
     <div className="flex h-full bg-[#0b0f17] text-slate-200">
       {/* Sidebar */}
@@ -250,7 +385,12 @@ export default function App() {
               <span className="w-4 text-center text-slate-400">{n.icon}</span>
               {n.label}
               {n.id === 'workspace' && tabs.length > 0 && (
-                <span className="ml-auto rounded-full bg-indigo-500/80 px-1.5 text-[10px] font-medium text-white">
+                <span
+                  className={`ml-auto rounded-full px-1.5 text-[10px] font-medium text-white ${
+                    anyWaiting ? 'animate-pulse bg-amber-500/90' : 'bg-indigo-500/80'
+                  }`}
+                  title={anyWaiting ? 'A Claude session is waiting for you' : undefined}
+                >
                   {tabs.length}
                 </span>
               )}
@@ -286,10 +426,13 @@ export default function App() {
               tabs={tabs}
               activeKey={activeKey}
               visible={view === 'workspace'}
+              statuses={claudeStatus}
               onActivate={setActiveKey}
               onClose={closeTab}
               onSendToClaude={sendToClaude}
               onSessionEnd={markTabDead}
+              onTaskRemoved={onTaskRemoved}
+              notify={notify}
             />
           </div>
 
@@ -298,7 +441,15 @@ export default function App() {
               {loading ? (
                 <div className="text-sm text-slate-500">Loading projects…</div>
               ) : view === 'dashboard' ? (
-                <Dashboard projects={projects} git={git} onOpen={setSelected} onLaunch={onLaunch} />
+                <Dashboard
+                  projects={projects}
+                  git={git}
+                  statuses={claudeStatus}
+                  onOpen={setSelected}
+                  onLaunch={onLaunch}
+                  onFocusSession={focusSession}
+                  onDismissStatus={clearStatusFor}
+                />
               ) : view === 'projects' ? (
                 <Projects
                   projects={projects}
@@ -325,6 +476,10 @@ export default function App() {
           onUpdate={onUpdate}
           onRemove={onRemove}
           onLaunch={onLaunch}
+          onOpenTask={(p, wt) => void openClaude(p, { cwd: wt.path, task: wt.task })}
+          onOpenDiff={openDiff}
+          worktreesVersion={worktreesVersion}
+          notify={notify}
         />
       )}
 

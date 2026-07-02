@@ -54,6 +54,14 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 ### ✅ Workspace viewer tabs (post-Phase-5)
 Unified the terminal view into **Workspace** — per-project mixed tabs: Claude terminal + an **embedded Chromium browser** (`<webview>`, URL bar, back/fwd/reload, persistent `persist:hub` session). Per-type default URLs (roblox→Creator Dashboard, hytopia→play.hytopia.com, web→localhost:5173…), an **Open in Chrome** button (launches real `chrome.exe`), and **Launch Roblox Studio** (finds `RobloxStudioBeta.exe`) on roblox projects. Native apps launch externally — you can't host another app's window as a tab; Claude drives Studio via the Roblox_Studio MCP. Each project has a **URL field** + roblox projects get **▶ Play in Roblox** (launches the published game in the native Roblox Player via a `roblox://` deep link from the game's URL/place ID); the Viewer opens that URL when set.
 
+### ✅ Tier 1+ — Cockpit foundations (2026-07-01)
+Terminal clipboard (smart paste: clipboard image → temp PNG path for Claude vision; drag-drop file → quoted path), **Files pane** (in-app tree + image/video/audio/PDF/text preview via guarded `hubfile://`, "Send to Claude"), **hub-wide Claude context** (`~/.claude/builder-hub-projects.md` + marked block in global CLAUDE.md + `BUILDER_HUB_PROJECTS` env — every Claude session can resolve any project by name), embedded **Shell tabs**, git badges + Dashboard triage.
+
+### ✅ Tier 2 — The cockpit trio (2026-07-02)
+1. **Hooks → Hub**: Claude Code hooks (UserPromptSubmit/PostToolUse/Stop/Notification/SessionEnd, auto-wired idempotently into `~/.claude/settings.json`) POST to a localhost listener (port 44711, 204-empty replies so hook stdout stays silent; Origin-header spoofing rejected). Native toasts when a session needs you and the Hub is unfocused (`setAppUserModelId` for packaged builds; single-instance lock).
+2. **Status board**: working/waiting/done dots on Claude tabs, amber sidebar pulse, Dashboard "Claude sessions" rail (click-to-focus, dismiss) — external sessions show too. All cwd keys normalized (`normPath`) because git porcelain emits forward slashes on Windows.
+3. **Task sessions**: per-task git worktrees (`hub/<task>` branch in `<project>.worktrees/<task>`, CLAUDE.md copied in), Claude tab per task, **⇄ Diff tab** (merge-base vs main branch incl. uncommitted, untracked list, 1MB cap) with **Merge back** (MERGE_HEAD/detached-HEAD guards, abort-own-merge-only) and **Discard**; removal kills the task's PTYs first (Windows cwd lock) and retries.
+
 ### Phase 7 — Security cleanup (parallel, independent)
 Rotate the hardcoded Stability AI key in `The-Classified-Files/config.js`; fix the client-exposed `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET` in old founderos.
 

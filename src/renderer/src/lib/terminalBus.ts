@@ -3,6 +3,8 @@
 // one Claude tab per project, so the key is unambiguous. Text sent before the
 // terminal is ready is queued (with a TTL) and flushed on registration.
 
+import { normPath } from '@shared/sessionLogic'
+
 type Writer = (text: string) => void
 
 interface Queued {
@@ -17,7 +19,8 @@ const QUEUE_TTL_MS = 30_000
 const writers = new Map<string, Writer>()
 const queues = new Map<string, Queued[]>()
 
-const keyOf = (cwd: string): string => cwd.toLowerCase()
+// normPath, not plain lowercase: worktree paths arrive with mixed separators.
+const keyOf = (cwd: string): string => normPath(cwd)
 
 export function registerClaudeTerminal(cwd: string, writer: Writer): () => void {
   const key = keyOf(cwd)

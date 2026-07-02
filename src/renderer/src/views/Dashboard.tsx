@@ -1,17 +1,37 @@
-import type { GitStatus, LaunchKind, Project } from '@shared/types'
+import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project } from '@shared/types'
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
+import { resolveSessionProject } from '@shared/sessionLogic'
 import { GitBadge } from '@/components/GitBadge'
+
+const STATE_META: Record<string, { dot: string; label: string; text: string }> = {
+  working: { dot: 'bg-sky-400 animate-pulse', label: 'working', text: 'text-sky-300' },
+  waiting: { dot: 'bg-amber-400 animate-pulse', label: 'waiting for you', text: 'text-amber-300' },
+  done: { dot: 'bg-emerald-400', label: 'done', text: 'text-emerald-300' }
+}
+
+function relTime(at: number): string {
+  const s = Math.max(0, Math.round((Date.now() - at) / 1000))
+  if (s < 60) return 'just now'
+  if (s < 3600) return `${Math.round(s / 60)}m ago`
+  return `${Math.round(s / 3600)}h ago`
+}
 
 export function Dashboard({
   projects,
   git,
+  statuses,
   onOpen,
-  onLaunch
+  onLaunch,
+  onFocusSession,
+  onDismissStatus
 }: {
   projects: Project[]
   git: Record<string, GitStatus>
+  statuses: Record<string, ClaudeStatusEvent>
   onOpen: (p: Project) => void
   onLaunch: (kind: LaunchKind, p: Project) => void
+  onFocusSession: (cwd: string) => void
+  onDismissStatus: (cwd: string) => void
 }) {
   const counts = PROJECT_TYPES.map((t) => ({ t, n: projects.filter((p) => p.type === t).length })).filter(
     (x) => x.n > 0
@@ -23,6 +43,11 @@ export function Dashboard({
     .slice(0, 6)
   // Projects with uncommitted work — the most actionable triage signal.
   const dirty = projects.filter((p) => (git[p.id]?.dirty ?? 0) > 0)
+  // Live Claude sessions (hooks-fed), waiting first, then working, then done.
+  const order: Record<string, number> = { waiting: 0, working: 1, done: 2 }
+  const sessions = Object.values(statuses)
+    .filter((s) => s.state !== 'ended')
+    .sort((a, b) => (order[a.state] ?? 9) - (order[b.state] ?? 9) || b.at - a.at)
 
   const Row = ({ p }: { p: Project }) => (
     <div
@@ -57,6 +82,46 @@ export function Dashboard({
         <Stat label="Recently opened" value={recent.length} />
         <Stat label="Uncommitted" value={dirty.length} accent={dirty.length > 0} />
       </div>
+
+      {sessions.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">
+            Claude sessions
+          </h2>
+          <div className="rounded-xl border border-white/5 bg-white/[0.02] p-1">
+            {sessions.map((s) => {
+              const meta = STATE_META[s.state] ?? STATE_META.done
+              const { label } = resolveSessionProject(s.cwd, projects)
+              return (
+                <div
+                  key={s.cwd.toLowerCase()}
+                  onClick={() => onFocusSession(s.cwd)}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/5"
+                  title={s.cwd}
+                >
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
+                  <span className="min-w-0 truncate text-sm text-slate-200">{label}</span>
+                  <span className={`shrink-0 text-xs ${meta.text}`}>{meta.label}</span>
+                  {s.message && s.state === 'waiting' && (
+                    <span className="min-w-0 truncate text-xs text-slate-500">{s.message}</span>
+                  )}
+                  <span className="ml-auto shrink-0 text-[11px] text-slate-600">{relTime(s.at)}</span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onDismissStatus(s.cwd)
+                    }}
+                    className="shrink-0 text-slate-600 hover:text-slate-300"
+                    title="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+        </div>
+      )}
 
       {dirty.length > 0 && (
         <div>
