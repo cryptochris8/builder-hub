@@ -12,6 +12,15 @@ import type { Project } from '../shared/types'
 
 let cache: Project[] | null = null
 
+// Subscribers notified after every successful persist (e.g. the hub-context
+// writer that keeps ~/.claude/builder-hub-projects.md fresh for Claude).
+type PersistListener = (rows: Project[]) => void
+const persistListeners: PersistListener[] = []
+
+export function onPersist(listener: PersistListener): void {
+  persistListeners.push(listener)
+}
+
 function file(): string {
   return join(app.getPath('userData'), 'projects.json')
 }
@@ -59,4 +68,11 @@ export function persist(rows: Project[]): void {
     /* best-effort backup */
   }
   renameSync(tmp, f)
+  for (const listener of persistListeners) {
+    try {
+      listener(rows)
+    } catch {
+      /* a listener must never break a save */
+    }
+  }
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react'
-import type { LaunchKind, Project, ProjectType } from '@shared/types'
+import type { GitStatus, LaunchKind, Project, ProjectType } from '@shared/types'
 import { hub } from '@/lib/api'
+import { sendToClaudeTerminal } from '@/lib/terminalBus'
 import { Dashboard } from '@/views/Dashboard'
 import { Projects } from '@/views/Projects'
 import { WorkspaceView, type WorkspaceTab } from '@/views/WorkspaceView'
@@ -36,6 +37,7 @@ function defaultViewerUrl(type: ProjectType): string {
 export default function App() {
   const [view, setView] = useState<View>('projects')
   const [projects, setProjects] = useState<Project[]>([])
+  const [git, setGit] = useState<Record<string, GitStatus>>({})
   const [selected, setSelected] = useState<Project | null>(null)
   const [tabs, setTabs] = useState<WorkspaceTab[]>([])
   const [activeKey, setActiveKey] = useState<string | null>(null)
@@ -43,6 +45,10 @@ export default function App() {
   const [loading, setLoading] = useState(true)
   const [toast, setToast] = useState<{ msg: string; err?: boolean } | null>(null)
   const timer = useRef<number | undefined>(undefined)
+  // Tabs whose terminal session ended/failed — openClaude replaces these instead
+  // of focusing them. A ref (not state): only consulted inside handlers, and refs
+  // can't go stale across awaits the way a captured state value can.
+  const deadTabs = useRef<Set<string>>(new Set())
 
   const notify = (msg: string, err = false): void => {
     setToast({ msg, err })
@@ -50,15 +56,35 @@ export default function App() {
     timer.current = window.setTimeout(() => setToast(null), 2800)
   }
 
+  // Pull live git status for every project (cheap, cached in main). Non-blocking:
+  // the registry renders immediately and badges fill in when this resolves.
+  const refreshGit = async (list: Project[]): Promise<void> => {
+    if (!list.length) return
+    try {
+      setGit(await hub.git.statuses(list.map((p) => ({ id: p.id, path: p.path }))))
+    } catch {
+      /* git unavailable — badges just stay empty */
+    }
+  }
+
   const refresh = async (): Promise<void> => {
     const list = await hub.projects.list()
     setProjects(list)
     setSelected((cur) => (cur ? (list.find((p) => p.id === cur.id) ?? null) : null))
+    void refreshGit(list)
   }
 
   useEffect(() => {
     refresh().finally(() => setLoading(false))
   }, [])
+
+  // Re-check git when the window regains focus — you've likely been committing
+  // in a terminal/editor since you last looked at the Hub.
+  useEffect(() => {
+    const onFocus = (): void => void refreshGit(projects)
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [projects])
 
   const addProject = async (): Promise<void> => {
     const p = await hub.projects.add()
@@ -86,18 +112,25 @@ export default function App() {
     void onUpdate(p.id, { favorite: !p.favorite })
   }
 
-  // Open (or focus) an embedded Claude Code session for a project.
+  // Open (or focus) an embedded Claude Code session for a project. The dedup runs
+  // inside the functional updater so rapid double-triggers (or Send-to-Claude racing
+  // a click) can't slip past a stale `tabs` closure and spawn two PTYs. A tab whose
+  // session ended is replaced with a fresh one (new key → clean remount).
   const openClaude = async (p: Project): Promise<void> => {
-    const ctx = await hub.projects.ensureContext(p.id)
+    const ctx = await hub.projects.ensureContext(p.id) // seed CLAUDE.md BEFORE the PTY spawns
     if (ctx.seeded) notify('Seeded CLAUDE.md so Claude knows your stack')
-    const existing = tabs.find((t) => t.kind === 'claude' && t.project.path === p.path)
-    if (existing) {
-      setActiveKey(existing.key)
-    } else {
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.kind === 'claude' && t.project.path === p.path)
+      if (existing && !deadTabs.current.has(existing.key)) {
+        setActiveKey(existing.key)
+        return prev
+      }
+      if (existing) deadTabs.current.delete(existing.key)
       const key = `claude:${p.id}:${Date.now()}`
-      setTabs((prev) => [...prev, { key, kind: 'claude', project: p }])
       setActiveKey(key)
-    }
+      const rest = existing ? prev.filter((t) => t.key !== existing.key) : prev
+      return [...rest, { key, kind: 'claude', project: p }]
+    })
     setView('workspace')
     await hub.projects.touch(p.id) // mark recently-opened → surfaces in Dashboard "Recent"
     await refresh()
@@ -111,12 +144,47 @@ export default function App() {
     setView('workspace')
   }
 
+  // Open (or focus) the in-app file browser for a project (dedup in the updater).
+  const openFiles = (p: Project): void => {
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.kind === 'files' && t.project.path === p.path)
+      if (existing) {
+        setActiveKey(existing.key)
+        return prev
+      }
+      const key = `files:${p.id}:${Date.now()}`
+      setActiveKey(key)
+      return [...prev, { key, kind: 'files', project: p }]
+    })
+    setView('workspace')
+  }
+
+  // Open a plain embedded shell (no Claude) — dev servers, scripts, git… Multiple allowed.
+  const openShell = (p: Project): void => {
+    const key = `shell:${p.id}:${Date.now()}`
+    setTabs((prev) => [...prev, { key, kind: 'shell', project: p }])
+    setActiveKey(key)
+    setView('workspace')
+  }
+
+  // From the Files pane: paste text (a quoted file path) into the project's Claude
+  // session — opening/focusing it first. The terminal bus queues until the PTY is up.
+  const sendToClaude = (p: Project, text: string): void => {
+    void openClaude(p)
+    sendToClaudeTerminal(p.path, text)
+  }
+
   const closeTab = (key: string): void => {
+    deadTabs.current.delete(key)
     setTabs((prev) => {
       const next = prev.filter((t) => t.key !== key)
       setActiveKey((cur) => (cur === key ? (next[next.length - 1]?.key ?? null) : cur))
       return next
     })
+  }
+
+  const markTabDead = (key: string): void => {
+    deadTabs.current.add(key)
   }
 
   const onCreated = async (project: Project, withClaude: boolean): Promise<void> => {
@@ -129,12 +197,16 @@ export default function App() {
   const onLaunch = async (kind: LaunchKind, p: Project): Promise<void> => {
     if (kind === 'claude') return void openClaude(p)
     if (kind === 'viewer') return void openViewer(p)
+    if (kind === 'files') return void openFiles(p)
+    if (kind === 'shell') return void openShell(p)
     const labels: Record<LaunchKind, string> = {
       folder: 'Opening folder',
       editor: 'Opening editor',
       terminal: 'Opening terminal',
       claude: 'Launching Claude',
       viewer: 'Opening viewer',
+      files: 'Opening files',
+      shell: 'Opening shell',
       studio: 'Launching Roblox Studio',
       play: 'Launching in Roblox'
     }
@@ -216,6 +288,8 @@ export default function App() {
               visible={view === 'workspace'}
               onActivate={setActiveKey}
               onClose={closeTab}
+              onSendToClaude={sendToClaude}
+              onSessionEnd={markTabDead}
             />
           </div>
 
@@ -224,10 +298,11 @@ export default function App() {
               {loading ? (
                 <div className="text-sm text-slate-500">Loading projects…</div>
               ) : view === 'dashboard' ? (
-                <Dashboard projects={projects} onOpen={setSelected} onLaunch={onLaunch} />
+                <Dashboard projects={projects} git={git} onOpen={setSelected} onLaunch={onLaunch} />
               ) : view === 'projects' ? (
                 <Projects
                   projects={projects}
+                  git={git}
                   onOpen={setSelected}
                   onToggleFav={onToggleFav}
                   onLaunch={onLaunch}

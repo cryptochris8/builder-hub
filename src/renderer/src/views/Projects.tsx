@@ -1,10 +1,11 @@
 import { useMemo, useState } from 'react'
-import type { LaunchKind, Project, ProjectType } from '@shared/types'
+import type { GitStatus, LaunchKind, Project, ProjectType } from '@shared/types'
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
 import { ProjectCard } from '@/components/ProjectCard'
 
 export function Projects({
   projects,
+  git,
   onOpen,
   onToggleFav,
   onLaunch,
@@ -12,6 +13,7 @@ export function Projects({
   onRescan
 }: {
   projects: Project[]
+  git: Record<string, GitStatus>
   onOpen: (p: Project) => void
   onToggleFav: (p: Project) => void
   onLaunch: (kind: LaunchKind, p: Project) => void
@@ -74,7 +76,14 @@ export function Projects({
       {visible.length ? (
         <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3">
           {visible.map((p) => (
-            <ProjectCard key={p.id} project={p} onOpen={onOpen} onToggleFav={onToggleFav} onLaunch={onLaunch} />
+            <ProjectCard
+              key={p.id}
+              project={p}
+              git={git[p.id]}
+              onOpen={onOpen}
+              onToggleFav={onToggleFav}
+              onLaunch={onLaunch}
+            />
           ))}
         </div>
       ) : (

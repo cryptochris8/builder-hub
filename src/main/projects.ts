@@ -239,6 +239,7 @@ function buildProjectClaudeMd(
     `## Tools & stacks available to me\n` +
     `- **Full tool catalog** — every tool / service / API / app I use, with versions and where each API key lives: \`${join(home, 'TOOL-STACK.md')}\`. Read it before choosing a tool or scoping work, and **prefer tools I already have**.\n` +
     `- **Stack profiles** — focused tool set + conventions per project type: \`${join(home, '.claude', 'stack-profiles')}\`.\n` +
+    `- **All my other projects** — the Builder Hub registry (name → path · type · stack · notes): \`${join(home, '.claude', 'builder-hub-projects.md')}\` (auto-managed). When I mention another project, resolve it there — you may read those folders directly.\n` +
     `- This project's type is **${TYPE_META[type].label}**${profile ? ' — its profile is inlined below.' : '.'}\n` +
     (profile ? `\n---\n\n${profile.trim()}\n\n---\n` : '') +
     `\n## This project\n${closing}\n`
@@ -461,6 +462,9 @@ export function registerProjectIpc(): void {
   ipcMain.handle('projects:create', (_e, opts: CreateProjectOptions) => createProject(opts))
   ipcMain.handle('projects:ensureContext', (_e, id: string) => ensureStackAware(id))
   ipcMain.handle('projects:touch', (_e, id: string) => touchOpenedById(id))
+  // System helpers used by the New Project modal (Browse… + default location).
+  ipcMain.handle('dialog:pickDirectory', () => pickDirectory())
+  ipcMain.handle('system:homeDir', () => app.getPath('home'))
   ipcMain.handle('launch:folder', (_e, path: string) => launchFolder(path))
   ipcMain.handle('launch:editor', (_e, path: string) => launchEditor(path))
   ipcMain.handle('launch:terminal', (_e, path: string) => launchTerminal(path))

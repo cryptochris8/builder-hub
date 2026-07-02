@@ -1,14 +1,18 @@
-import { contextBridge, ipcRenderer } from 'electron'
+import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
   CreateProjectOptions,
   CreateProjectResult,
+  GitStatus,
   LaunchResult,
+  ListDirResult,
   McpServerInfo,
+  PasteResult,
   Project,
   PtyCreateOptions,
   PtyData,
   PtyExit,
+  ReadTextResult,
   RescanResult
 } from '../shared/types'
 
@@ -56,10 +60,26 @@ const api = {
   },
   system: {
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),
-    homeDir: (): Promise<string> => ipcRenderer.invoke('system:homeDir')
+    homeDir: (): Promise<string> => ipcRenderer.invoke('system:homeDir'),
+    /** Absolute path of a File dropped onto the window (File.path is gone in Electron 32+). */
+    pathForFile: (file: File): string => webUtils.getPathForFile(file)
+  },
+  fs: {
+    list: (dir: string): Promise<ListDirResult> => ipcRenderer.invoke('fs:list', dir),
+    readText: (file: string): Promise<ReadTextResult> => ipcRenderer.invoke('fs:readText', file),
+    openExternal: (file: string): Promise<LaunchResult> => ipcRenderer.invoke('fs:openExternal', file),
+    showInFolder: (file: string): Promise<LaunchResult> => ipcRenderer.invoke('fs:showInFolder', file)
+  },
+  clipboard: {
+    readForPaste: (): Promise<PasteResult> => ipcRenderer.invoke('clipboard:readForPaste'),
+    writeText: (text: string): Promise<boolean> => ipcRenderer.invoke('clipboard:writeText', text)
   },
   mcp: {
     list: (): Promise<McpServerInfo[]> => ipcRenderer.invoke('mcp:list')
+  },
+  git: {
+    statuses: (items: { id: string; path: string }[]): Promise<Record<string, GitStatus>> =>
+      ipcRenderer.invoke('git:statuses', items)
   }
 }
 

@@ -2,12 +2,14 @@ import type { LaunchKind, Project, ProjectStatus, ProjectType } from '@shared/ty
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
 
 const STATUSES: ProjectStatus[] = ['active', 'idea', 'archived']
-const ACTIONS: { kind: LaunchKind; label: string }[] = [
-  { kind: 'claude', label: '▸ Claude' },
-  { kind: 'viewer', label: '🌐 Viewer' },
-  { kind: 'editor', label: '⌨ Editor' },
-  { kind: 'terminal', label: '❯ Terminal' },
-  { kind: 'folder', label: '🗁 Folder' }
+const ACTIONS: { kind: LaunchKind; label: string; title?: string }[] = [
+  { kind: 'claude', label: '▸ Claude', title: 'Embedded Claude Code session' },
+  { kind: 'files', label: '🗀 Files', title: 'Browse & preview files in-app' },
+  { kind: 'shell', label: '❯ Shell', title: 'Embedded terminal (no Claude)' },
+  { kind: 'viewer', label: '🌐 Viewer', title: 'Embedded browser' },
+  { kind: 'editor', label: '⌨ Editor', title: 'Open in Cursor / VS Code' },
+  { kind: 'terminal', label: '❯ Terminal ↗', title: 'External Windows Terminal' },
+  { kind: 'folder', label: '🗁 Folder', title: 'Open in Explorer' }
 ]
 
 export function ProjectDetail({
@@ -45,6 +47,7 @@ export function ProjectDetail({
             <button
               key={a.kind}
               onClick={() => onLaunch(a.kind, project)}
+              title={a.title}
               className="rounded-md bg-white/5 px-2.5 py-1.5 text-xs text-slate-200 transition hover:bg-indigo-500/80 hover:text-white"
             >
               {a.label}

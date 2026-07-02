@@ -62,6 +62,20 @@ const ENV_BY_TYPE: Partial<Record<ProjectType, string[]>> = {
   'static-site': ['# FORMSPREE_ID=']
 }
 
+/** Human-readable byte size (Files pane). Pure. */
+export function prettyBytes(n: number): string {
+  if (!Number.isFinite(n) || n < 0) return ''
+  if (n < 1024) return `${n} B`
+  const units = ['KB', 'MB', 'GB', 'TB']
+  let v = n
+  let u = -1
+  do {
+    v /= 1024
+    u++
+  } while (v >= 1024 && u < units.length - 1)
+  return `${v >= 100 ? Math.round(v) : v.toFixed(1)} ${units[u]}`
+}
+
 /** The .env.example body for a project type, or null if it needs none. */
 export function envExampleFor(type: ProjectType): string | null {
   const lines = ENV_BY_TYPE[type]
@@ -71,6 +85,56 @@ export function envExampleFor(type: ProjectType): string | null {
     `# Never put a secret in a NEXT_PUBLIC_/client var — it ships to users.\n\n` +
     `${lines.join('\n')}\n`
   )
+}
+
+// ---------- git status parsing (pure; main runs `git`, these parse its output) ----------
+
+export interface GitWorkingState {
+  /** branch name, or undefined when HEAD is detached */
+  branch?: string
+  detached: boolean
+  ahead: number
+  behind: number
+  /** whether the branch tracks an upstream (so ahead/behind are meaningful) */
+  hasUpstream: boolean
+  /** count of changed files (staged + unstaged + untracked) */
+  dirty: number
+}
+
+/**
+ * Parse `git status --porcelain=v2 --branch` output. Pure.
+ * Header lines start with `# `; every non-header line is one changed/untracked file.
+ */
+export function parseGitStatusV2(stdout: string): GitWorkingState {
+  const state: GitWorkingState = { detached: false, ahead: 0, behind: 0, hasUpstream: false, dirty: 0 }
+  for (const raw of stdout.split('\n')) {
+    const line = raw.replace(/\r$/, '')
+    if (line === '') continue
+    if (line.startsWith('# branch.head ')) {
+      const head = line.slice('# branch.head '.length).trim()
+      if (head === '(detached)') state.detached = true
+      else state.branch = head
+    } else if (line.startsWith('# branch.ab ')) {
+      state.hasUpstream = true
+      const m = line.match(/\+(\d+)\s+-(\d+)/)
+      if (m) {
+        state.ahead = Number(m[1])
+        state.behind = Number(m[2])
+      }
+    } else if (!line.startsWith('#')) {
+      state.dirty++
+    }
+  }
+  return state
+}
+
+/** Parse one line of `git log -1 --format=%s%x1f%cr` (subject \x1f relative-time). Pure. */
+export function parseLastCommit(stdout: string): { subject: string; relative: string } | null {
+  const line = (stdout.split('\n')[0] ?? '').replace(/\r$/, '')
+  if (!line) return null
+  const [subject, relative] = line.split('\x1f')
+  if (!subject) return null
+  return { subject, relative: relative ?? '' }
 }
 
 interface Pkgish {

@@ -1,8 +1,10 @@
-import type { LaunchKind, Project } from '@shared/types'
+import type { GitStatus, LaunchKind, Project } from '@shared/types'
 import { TYPE_META } from '@shared/types'
+import { GitBadge } from '@/components/GitBadge'
 
 const ACTIONS: { kind: LaunchKind; label: string; icon: string }[] = [
   { kind: 'claude', label: 'Claude', icon: '▸' },
+  { kind: 'files', label: 'Files', icon: '🗀' },
   { kind: 'viewer', label: 'Viewer', icon: '🌐' },
   { kind: 'editor', label: 'Editor', icon: '⌨' },
   { kind: 'folder', label: 'Folder', icon: '🗁' }
@@ -10,11 +12,13 @@ const ACTIONS: { kind: LaunchKind; label: string; icon: string }[] = [
 
 export function ProjectCard({
   project,
+  git,
   onOpen,
   onToggleFav,
   onLaunch
 }: {
   project: Project
+  git?: GitStatus
   onOpen: (p: Project) => void
   onToggleFav: (p: Project) => void
   onLaunch: (kind: LaunchKind, p: Project) => void
@@ -42,9 +46,13 @@ export function ProjectCard({
         </button>
       </div>
 
-      <div className="mb-3 flex items-center gap-2">
+      <div className="mb-2 flex items-center gap-2">
         <span className="rounded-md bg-white/5 px-2 py-0.5 text-[11px] text-slate-400">{meta.label}</span>
         <span className="truncate text-xs text-slate-500">{project.stack || project.path}</span>
+      </div>
+
+      <div className="mb-3 h-4">
+        <GitBadge status={git} />
       </div>
 
       <div className="mt-auto flex flex-wrap gap-1.5">

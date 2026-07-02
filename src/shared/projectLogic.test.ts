@@ -1,5 +1,13 @@
 import { describe, it, expect } from 'vitest'
-import { sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles, recoverRegistry } from './projectLogic'
+import {
+  sanitizeFolder,
+  compareProjects,
+  envExampleFor,
+  detectTypeFromFiles,
+  recoverRegistry,
+  parseGitStatusV2,
+  parseLastCommit
+} from './projectLogic'
 import type { Project } from './types'
 
 const proj = (over: Partial<Project>): Project => ({
@@ -63,6 +71,63 @@ describe('detectTypeFromFiles', () => {
   it('detects static-site from index.html alone', () =>
     expect(detectTypeFromFiles(['index.html'])).toBe('static-site'))
   it('falls back to other', () => expect(detectTypeFromFiles(['notes.txt'])).toBe('other'))
+})
+
+describe('parseGitStatusV2', () => {
+  it('reads a clean repo tracking an upstream', () => {
+    const out = [
+      '# branch.oid abc123',
+      '# branch.head main',
+      '# branch.upstream origin/main',
+      '# branch.ab +0 -0',
+      ''
+    ].join('\n')
+    expect(parseGitStatusV2(out)).toEqual({
+      branch: 'main',
+      detached: false,
+      ahead: 0,
+      behind: 0,
+      hasUpstream: true,
+      dirty: 0
+    })
+  })
+
+  it('counts changed + untracked files and reads ahead/behind', () => {
+    const out = [
+      '# branch.head feature',
+      '# branch.upstream origin/feature',
+      '# branch.ab +2 -1',
+      '1 .M N... 100644 100644 100644 aaa bbb file.ts',
+      '1 M. N... 100644 100644 100644 ccc ddd staged.ts',
+      '? untracked.ts'
+    ].join('\n')
+    expect(parseGitStatusV2(out)).toMatchObject({ branch: 'feature', ahead: 2, behind: 1, hasUpstream: true, dirty: 3 })
+  })
+
+  it('handles a branch with no upstream (no branch.ab line)', () => {
+    const out = ['# branch.head wip', '1 A. N... 000000 100644 100644 000 eee new.ts'].join('\n')
+    expect(parseGitStatusV2(out)).toMatchObject({ branch: 'wip', hasUpstream: false, ahead: 0, behind: 0, dirty: 1 })
+  })
+
+  it('flags a detached HEAD with no branch name', () => {
+    const r = parseGitStatusV2('# branch.head (detached)\n')
+    expect(r.detached).toBe(true)
+    expect(r.branch).toBeUndefined()
+  })
+
+  it('tolerates CRLF line endings', () => {
+    expect(parseGitStatusV2('# branch.head main\r\n? a.ts\r\n').dirty).toBe(1)
+  })
+})
+
+describe('parseLastCommit', () => {
+  it('splits subject and relative time on the unit separator', () =>
+    expect(parseLastCommit('Fix terminal width\x1f3 days ago\n')).toEqual({
+      subject: 'Fix terminal width',
+      relative: '3 days ago'
+    }))
+  it('returns null for empty output (e.g. a repo with no commits)', () =>
+    expect(parseLastCommit('')).toBeNull())
 })
 
 describe('recoverRegistry', () => {

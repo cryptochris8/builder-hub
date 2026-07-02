@@ -1,8 +1,10 @@
 import { ipcMain } from 'electron'
 import type { WebContents } from 'electron'
+import { existsSync } from 'fs'
 import { spawn } from '@homebridge/node-pty-prebuilt-multiarch'
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch'
 import { randomUUID } from 'crypto'
+import { registryFilePath } from './hubContext'
 import type { PtyCreateOptions } from '../shared/types'
 
 interface Session {
@@ -21,21 +23,29 @@ function defaultShell(): string {
   return process.env.SHELL || 'bash'
 }
 
-// Kill a window's PTYs when its renderer is destroyed (closed or crashed) so no
-// shell/Claude processes are left orphaned.
+function killSessionsFor(wc: WebContents): void {
+  for (const [id, s] of sessions) {
+    if (s.wc !== wc) continue
+    try {
+      s.proc.kill()
+    } catch {
+      /* already gone */
+    }
+    sessions.delete(id)
+  }
+}
+
+// Kill a window's PTYs when its renderer goes away — window closed, renderer
+// crashed, OR the page reloaded/navigated (Ctrl+R / dev full reload): the new
+// document has no terminal ids, so surviving processes would be orphans that
+// keep running (and keep burning Claude usage) until app quit.
 function hookWebContents(wc: WebContents): void {
   if (hookedWc.has(wc)) return
   hookedWc.add(wc)
-  wc.once('destroyed', () => {
-    for (const [id, s] of sessions) {
-      if (s.wc !== wc) continue
-      try {
-        s.proc.kill()
-      } catch {
-        /* already gone */
-      }
-      sessions.delete(id)
-    }
+  wc.once('destroyed', () => killSessionsFor(wc))
+  wc.on('render-process-gone', () => killSessionsFor(wc))
+  wc.on('did-start-navigation', (details) => {
+    if (details.isMainFrame && !details.isSameDocument) killSessionsFor(wc)
   })
 }
 
@@ -53,6 +63,11 @@ export function killAllPtys(): void {
 
 export function registerPtyIpc(): void {
   ipcMain.handle('pty:create', (e, opts: PtyCreateOptions): string => {
+    // node-pty throws opaquely (e.g. "error code: 267") when the cwd is gone —
+    // registry entries can outlive their folders, so fail with a readable message.
+    if (!existsSync(opts.cwd)) {
+      throw new Error(`Folder not found: ${opts.cwd}`)
+    }
     const id = randomUUID()
     const wc = e.sender
     hookWebContents(wc)
@@ -66,6 +81,10 @@ export function registerPtyIpc(): void {
     const env = { ...process.env }
     delete env.COLUMNS
     delete env.LINES
+    // Let anything in the session (Claude especially) know it's running inside the
+    // Hub and where the full project registry lives.
+    env.BUILDER_HUB = '1'
+    env.BUILDER_HUB_PROJECTS = registryFilePath()
 
     const proc = spawn(shell, args, {
       name: 'xterm-256color',

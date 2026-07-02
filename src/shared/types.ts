@@ -56,12 +56,75 @@ export interface LaunchResult {
   error?: string
 }
 
+// Live git status for a project folder (Tier 1 triage). Computed in main, cached.
+export interface GitStatus {
+  /** false when the folder isn't a git repo (no badge shown) */
+  isRepo: boolean
+  /** current branch, or undefined when detached/unknown */
+  branch?: string
+  /** commits ahead of upstream — undefined when there's no upstream */
+  ahead?: number
+  /** commits behind upstream — undefined when there's no upstream */
+  behind?: number
+  /** changed files (staged + unstaged + untracked); 0 = clean */
+  dirty?: number
+  /** last commit subject + relative time, when the repo has commits */
+  lastCommit?: { subject: string; relative: string }
+}
+
 export interface RescanResult {
   scanned: number
   added: number
 }
 
-export type LaunchKind = 'folder' | 'editor' | 'terminal' | 'claude' | 'viewer' | 'studio' | 'play'
+export type LaunchKind =
+  | 'folder'
+  | 'editor'
+  | 'terminal'
+  | 'claude'
+  | 'viewer'
+  | 'files'
+  | 'shell'
+  | 'studio'
+  | 'play'
+
+// Files pane (in-app file browser + preview)
+export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'other'
+
+export interface FileEntry {
+  name: string
+  path: string
+  isDir: boolean
+  /** bytes; 0 for dirs */
+  size: number
+  /** classification for the preview pane; 'other' for dirs too */
+  kind: FileKind
+}
+
+export interface ListDirResult {
+  ok: boolean
+  entries: FileEntry[]
+  /** true when the listing was cut off at the cap */
+  truncated?: boolean
+  error?: string
+}
+
+export interface ReadTextResult {
+  ok: boolean
+  content?: string
+  /** true when only the first chunk of a large file was read */
+  truncated?: boolean
+  error?: string
+}
+
+/** What the clipboard held when pasting into a terminal. An image is saved to a
+ *  temp PNG so its path can be handed to Claude (vision input). */
+export interface PasteResult {
+  kind: 'text' | 'image' | 'empty'
+  text?: string
+  /** temp PNG path when kind === 'image' */
+  path?: string
+}
 
 // Embedded terminal (Phase 3)
 export interface PtyData {
