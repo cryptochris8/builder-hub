@@ -10,6 +10,7 @@ import { isAllowedPath, registerFilesIpc, registerHubfileProtocol, registerHubfi
 import { registerHubContext } from './hubContext'
 import { ensureHooksInstalled, registerHookIpc, startHookServer, stopHookServer } from './hookServer'
 import { registerWorktreeIpc } from './worktrees'
+import { registerHandoffIpc } from './handoff'
 
 // Custom scheme privileges must be declared before the app is ready.
 registerHubfileScheme()
@@ -112,6 +113,7 @@ app.whenReady().then(() => {
   registerFilesIpc()
   registerHubfileProtocol()
   registerWorktreeIpc()
+  registerHandoffIpc()
   // Cockpit: Claude Code hooks POST session state to a localhost listener, and
   // the hook commands are (idempotently) wired into ~/.claude/settings.json.
   registerHookIpc()

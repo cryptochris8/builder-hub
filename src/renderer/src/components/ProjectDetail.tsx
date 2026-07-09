@@ -1,8 +1,31 @@
 import { useEffect, useState } from 'react'
-import type { LaunchKind, Project, ProjectStatus, ProjectType, WorktreeInfo } from '@shared/types'
-import { PROJECT_TYPES, TYPE_META } from '@shared/types'
+import type {
+  LaunchKind,
+  Project,
+  ProjectStage,
+  ProjectStatus,
+  ProjectType,
+  WorktreeInfo
+} from '@shared/types'
+import { PROJECT_STAGES, PROJECT_TYPES, STAGE_LABELS, TYPE_META } from '@shared/types'
+import { calculateFocusScore, calculateHealth } from '@shared/scoring'
 import { sanitizeBranch } from '@shared/sessionLogic'
+import { HandoffModal } from '@/components/HandoffModal'
 import { hub } from '@/lib/api'
+
+const HEALTH_DOT: Record<string, string> = {
+  green: 'bg-emerald-400',
+  yellow: 'bg-amber-400',
+  red: 'bg-rose-400'
+}
+
+const SCORE_FIELDS = [
+  ['revenueScore', 'Rev', 'How directly this makes money'],
+  ['strategicScore', 'Strat', 'Long-term strategic importance'],
+  ['excitementScore', 'Excite', 'How excited you are to work on it'],
+  ['readinessScore', 'Ready', 'How close to launch/shippable'],
+  ['effortScore', 'Effort', 'Remaining effort — high lowers the score']
+] as const
 
 const STATUSES: ProjectStatus[] = ['active', 'idea', 'archived']
 const ACTIONS: { kind: LaunchKind; label: string; title?: string }[] = [
@@ -41,6 +64,17 @@ export function ProjectDetail({
   const [worktrees, setWorktrees] = useState<WorktreeInfo[] | null>(null)
   const [newTask, setNewTask] = useState('')
   const [taskBusy, setTaskBusy] = useState(false)
+  const [showHandoff, setShowHandoff] = useState(false)
+
+  const focusScore = calculateFocusScore(project)
+  const health = calculateHealth(project)
+
+  const updateScore = (key: (typeof SCORE_FIELDS)[number][0], raw: string): void => {
+    const v = raw.trim()
+    if (v === '') return
+    const n = Math.max(0, Math.min(10, Math.round(Number(v))))
+    if (!Number.isNaN(n) && n !== project[key]) onUpdate(project.id, { [key]: n } as Partial<Project>)
+  }
 
   const refreshTasks = (): void => {
     hub.worktrees.list(project.path).then(setWorktrees)
@@ -124,6 +158,13 @@ export function ProjectDetail({
           >
             {project.favorite ? '★ Favorited' : '☆ Favorite'}
           </button>
+          <button
+            onClick={() => setShowHandoff(true)}
+            title="Generate a ready-to-paste Claude Code task brief"
+            className="rounded-md bg-white/5 px-2.5 py-1.5 text-xs text-slate-200 transition hover:bg-indigo-500/80 hover:text-white"
+          >
+            ⇥ Handoff
+          </button>
         </div>
 
         <div className="grid grid-cols-2 gap-3">
@@ -182,6 +223,132 @@ export function ProjectDetail({
             className={field}
           />
         </div>
+
+        <div>
+          <div className="flex items-center justify-between">
+            <div className={label}>Focus &amp; health</div>
+            <span className="flex items-center gap-2">
+              <span
+                className={`h-2 w-2 rounded-full ${HEALTH_DOT[health.status]}`}
+                title={health.reasons.join(' · ')}
+              />
+              <span className="text-xs font-semibold text-indigo-300" title="Focus score (0-10)">
+                {focusScore.toFixed(1)}
+              </span>
+            </span>
+          </div>
+          <div className="mt-1 space-y-2">
+            <select
+              defaultValue={project.stage ?? ''}
+              onChange={(e) => onUpdate(project.id, { stage: (e.target.value || undefined) as ProjectStage })}
+              className={field}
+              title="Product stage — ready-for-build and launch-prep boost the focus score"
+            >
+              <option value="" className="bg-[#0d1320]">
+                (no stage)
+              </option>
+              {PROJECT_STAGES.map((s) => (
+                <option key={s} value={s} className="bg-[#0d1320]">
+                  {STAGE_LABELS[s]}
+                </option>
+              ))}
+            </select>
+            <div className="grid grid-cols-5 gap-1.5">
+              {SCORE_FIELDS.map(([key, short, tip]) => (
+                <div key={key} title={`${tip} (0-10)`}>
+                  <div className="text-center text-[10px] text-slate-500">{short}</div>
+                  <input
+                    type="number"
+                    min={0}
+                    max={10}
+                    defaultValue={project[key] ?? ''}
+                    placeholder="5"
+                    onBlur={(e) => updateScore(key, e.target.value)}
+                    className="w-full rounded-md border border-white/10 bg-white/5 px-1 py-1 text-center text-xs text-slate-100 outline-none focus:border-indigo-400"
+                  />
+                </div>
+              ))}
+            </div>
+            <input
+              defaultValue={project.nextAction ?? ''}
+              placeholder="Next action — the single next concrete step"
+              onBlur={(e) => {
+                if (e.target.value !== (project.nextAction ?? ''))
+                  onUpdate(project.id, { nextAction: e.target.value })
+              }}
+              className={field}
+            />
+            <textarea
+              defaultValue={(project.blockers ?? []).join('\n')}
+              rows={2}
+              placeholder="Blockers — one per line (empty = unblocked)"
+              onBlur={(e) => {
+                const next = e.target.value
+                  .split('\n')
+                  .map((l) => l.trim())
+                  .filter(Boolean)
+                if (next.join('\n') !== (project.blockers ?? []).join('\n'))
+                  onUpdate(project.id, { blockers: next })
+              }}
+              className={`${field} resize-none`}
+            />
+          </div>
+        </div>
+
+        <details>
+          <summary className={`${label} cursor-pointer select-none`}>
+            Brief — feeds handoffs &amp; specs
+          </summary>
+          <div className="mt-2 space-y-2">
+            <textarea
+              defaultValue={project.shortDescription ?? ''}
+              rows={2}
+              placeholder="Short description — what is this?"
+              onBlur={(e) => {
+                if (e.target.value !== (project.shortDescription ?? ''))
+                  onUpdate(project.id, { shortDescription: e.target.value })
+              }}
+              className={`${field} resize-none`}
+            />
+            <input
+              defaultValue={project.problemSolved ?? ''}
+              placeholder="Problem solved"
+              onBlur={(e) => {
+                if (e.target.value !== (project.problemSolved ?? ''))
+                  onUpdate(project.id, { problemSolved: e.target.value })
+              }}
+              className={field}
+            />
+            <input
+              defaultValue={project.targetAudience ?? ''}
+              placeholder="Target audience"
+              onBlur={(e) => {
+                if (e.target.value !== (project.targetAudience ?? ''))
+                  onUpdate(project.id, { targetAudience: e.target.value })
+              }}
+              className={field}
+            />
+            <input
+              defaultValue={project.monetizationModel ?? ''}
+              placeholder="Monetization model"
+              onBlur={(e) => {
+                if (e.target.value !== (project.monetizationModel ?? ''))
+                  onUpdate(project.id, { monetizationModel: e.target.value })
+              }}
+              className={field}
+            />
+            <textarea
+              defaultValue={project.mvpDefinition ?? ''}
+              rows={3}
+              placeholder="MVP definition — the smallest shippable version"
+              onBlur={(e) => {
+                if (e.target.value !== (project.mvpDefinition ?? ''))
+                  onUpdate(project.id, { mvpDefinition: e.target.value })
+              }}
+              className={`${field} resize-none`}
+            />
+          </div>
+        </details>
 
         <div>
           <div className={label}>Task sessions — isolated git worktrees</div>
@@ -300,6 +467,10 @@ export function ProjectDetail({
           Remove from registry
         </button>
       </div>
+
+      {showHandoff && (
+        <HandoffModal project={project} onClose={() => setShowHandoff(false)} notify={notify} />
+      )}
     </div>
   )
 }

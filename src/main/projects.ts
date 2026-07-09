@@ -60,7 +60,30 @@ function insert(p: NewProject): Project {
   return project
 }
 
-const EDITABLE: (keyof Project)[] = ['name', 'type', 'stack', 'url', 'status', 'favorite', 'notes']
+const EDITABLE: (keyof Project)[] = [
+  'name',
+  'type',
+  'stack',
+  'url',
+  'status',
+  'favorite',
+  'notes',
+  // Focus & health + brief (FounderOS harvest)
+  'stage',
+  'revenueScore',
+  'strategicScore',
+  'excitementScore',
+  'readinessScore',
+  'effortScore',
+  'blockers',
+  'nextAction',
+  'currentFocus',
+  'shortDescription',
+  'problemSolved',
+  'targetAudience',
+  'monetizationModel',
+  'mvpDefinition'
+]
 
 export function updateProject(id: string, patch: Partial<Project>): Project | null {
   const rows = allProjects()

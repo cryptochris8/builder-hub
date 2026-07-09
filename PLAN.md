@@ -49,7 +49,7 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 - ✅ **Vitest harness**: pure logic extracted to `src/shared/projectLogic.ts` (sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles); **19 tests green** (`npm test`).
 - ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; currently 0.2.1). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
 - ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
-- Optional polish (not done): code signing (avoids SmartScreen warning), "Today's Focus" ranking + dashboard KPIs, theming.
+- Optional polish (not done): code signing (avoids SmartScreen warning), theming.
 
 ### ✅ Workspace viewer tabs (post-Phase-5)
 Unified the terminal view into **Workspace** — per-project mixed tabs: Claude terminal + an **embedded Chromium browser** (`<webview>`, URL bar, back/fwd/reload, persistent `persist:hub` session). Per-type default URLs (roblox→Creator Dashboard, hytopia→play.hytopia.com, web→localhost:5173…), an **Open in Chrome** button (launches real `chrome.exe`), and **Launch Roblox Studio** (finds `RobloxStudioBeta.exe`) on roblox projects. Native apps launch externally — you can't host another app's window as a tab; Claude drives Studio via the Roblox_Studio MCP. Each project has a **URL field** + roblox projects get **▶ Play in Roblox** (launches the published game in the native Roblox Player via a `roblox://` deep link from the game's URL/place ID); the Viewer opens that URL when set.
@@ -61,6 +61,14 @@ Terminal clipboard (smart paste: clipboard image → temp PNG path for Claude vi
 1. **Hooks → Hub**: Claude Code hooks (UserPromptSubmit/PostToolUse/Stop/Notification/SessionEnd, auto-wired idempotently into `~/.claude/settings.json`) POST to a localhost listener (port 44711, 204-empty replies so hook stdout stays silent; Origin-header spoofing rejected). Native toasts when a session needs you and the Hub is unfocused (`setAppUserModelId` for packaged builds; single-instance lock).
 2. **Status board**: working/waiting/done dots on Claude tabs, amber sidebar pulse, Dashboard "Claude sessions" rail (click-to-focus, dismiss) — external sessions show too. All cwd keys normalized (`normPath`) because git porcelain emits forward slashes on Windows.
 3. **Task sessions**: per-task git worktrees (`hub/<task>` branch in `<project>.worktrees/<task>`, CLAUDE.md copied in), Claude tab per task, **⇄ Diff tab** (merge-base vs main branch incl. uncommitted, untracked list, 1MB cap) with **Merge back** (MERGE_HEAD/detached-HEAD guards, abort-own-merge-only) and **Discard**; removal kills the task's PTYs first (Windows cwd lock) and retries.
+
+### ✅ Tier 4 — FounderOS harvest: focus scoring + handoffs (2026-07-08)
+The lean port of FounderOS's remaining brains (full 10-tab detail + shadcn deliberately skipped — the Hub keeps its hand-rolled UI):
+1. **Scoring engine** (`src/shared/scoring.ts`): `calculateFocusScore` (FounderOS weights — revenue 30 / strategic 25 / excitement 20 / readiness 15 / inverted effort 10; ready-for-build ×1.10, launch-prep ×1.15, blockers ×0.8; 1-decimal for stable ranking) + `calculateHealth` (green/yellow/red with reasons; activity = max(updatedAt, lastOpenedAt)) + `rankByFocus`.
+2. **Data model**: optional `stage` (8 stages) + 5 score inputs + `blockers`/`nextAction`/`currentFocus` + brief fields (`shortDescription`, `problemSolved`, `targetAudience`, `monetizationModel`, `mvpDefinition`) on `Project` — no migration needed, EDITABLE whitelist extended.
+3. **Handoff generator** (`src/shared/handoff.ts`): `generateHandoff` + `buildClaudeBuildPrompt` + `buildMvpPlanPrompt` (FounderOS's toolchain section dropped — CLAUDE.md seeding already covers it). `handoff:save` IPC writes `<project>/handoffs/<date>-<slug>.md` (path resolved from the registry, never from the renderer).
+4. **UI**: Dashboard "Today's Focus" rail (top 5 active by score, health dots, next actions) + Blocked stat; ProjectDetail "Focus & health" section (stage, score inputs, next action, blockers) + collapsible Brief + ⇥ Handoff modal (live preview, copy / save-to-project).
+27 new Vitest tests (120 total green).
 
 ### Phase 7 — Security cleanup (parallel, independent)
 Rotate the hardcoded Stability AI key in `The-Classified-Files/config.js`; fix the client-exposed `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET` in old founderos.

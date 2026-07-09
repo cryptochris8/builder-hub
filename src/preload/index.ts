@@ -6,6 +6,8 @@ import type {
   CreateProjectResult,
   GitActionResult,
   GitStatus,
+  HandoffInput,
+  HandoffSaveResult,
   LaunchResult,
   ListDirResult,
   McpActionResult,
@@ -112,6 +114,11 @@ const api = {
     },
     hooksInfo: (): Promise<{ listening: boolean; port: number; error?: string; installError?: string }> =>
       ipcRenderer.invoke('hooks:info')
+  },
+  handoff: {
+    /** Generate + save a Claude Code handoff into <project>/handoffs/. */
+    save: (projectId: string, input: HandoffInput): Promise<HandoffSaveResult> =>
+      ipcRenderer.invoke('handoff:save', projectId, input)
   },
   worktrees: {
     list: (projectPath: string): Promise<WorktreeInfo[]> => ipcRenderer.invoke('worktree:list', projectPath),

@@ -15,6 +15,33 @@ export const PROJECT_TYPES = [
 export type ProjectType = (typeof PROJECT_TYPES)[number]
 export type ProjectStatus = 'active' | 'archived' | 'idea'
 
+// Product lifecycle (harvested from FounderOS, trimmed). Distinct from `status`,
+// which is the *registry* lifecycle (shown/archived). Optional everywhere so
+// existing projects.json files need no migration.
+export const PROJECT_STAGES = [
+  'idea',
+  'planning',
+  'ready-for-build',
+  'building',
+  'testing',
+  'launch-prep',
+  'live',
+  'paused'
+] as const
+
+export type ProjectStage = (typeof PROJECT_STAGES)[number]
+
+export const STAGE_LABELS: Record<ProjectStage, string> = {
+  idea: 'Idea',
+  planning: 'Planning',
+  'ready-for-build': 'Ready for build',
+  building: 'Building',
+  testing: 'Testing',
+  'launch-prep': 'Launch prep',
+  live: 'Live',
+  paused: 'Paused'
+}
+
 export interface Project {
   id: string
   name: string
@@ -29,6 +56,32 @@ export interface Project {
   lastOpenedAt: number | null
   createdAt: number
   updatedAt: number
+
+  // --- Focus & health (FounderOS harvest) — all optional, 0-10 scores ---
+  stage?: ProjectStage
+  /** how directly this makes money */
+  revenueScore?: number
+  /** long-term strategic importance */
+  strategicScore?: number
+  /** how excited you are to work on it */
+  excitementScore?: number
+  /** how close to launch/shippable */
+  readinessScore?: number
+  /** remaining effort (high = lots left, lowers the score) */
+  effortScore?: number
+  /** what's blocking progress — empty/absent = unblocked */
+  blockers?: string[]
+  /** the single next concrete action */
+  nextAction?: string
+  /** what this project is currently about */
+  currentFocus?: string
+
+  // --- Brief (feeds the handoff/spec generators) ---
+  shortDescription?: string
+  problemSolved?: string
+  targetAudience?: string
+  monetizationModel?: string
+  mvpDefinition?: string
 }
 
 export interface TypeMeta {
@@ -196,6 +249,44 @@ export interface GitActionResult {
   ok: boolean
   /** stdout/stderr worth showing (e.g. merge summary or conflict text) */
   output?: string
+  error?: string
+}
+
+// Claude Code handoff generator (FounderOS harvest)
+export const HANDOFF_TASK_TYPES = [
+  'New feature',
+  'Bug fix',
+  'UI improvement',
+  'App Store/TestFlight update',
+  'Website/Netlify deployment',
+  'Firebase/Firestore update',
+  'Asset organization',
+  'Marketing video pipeline',
+  'Social content plan',
+  'Game mechanic implementation',
+  'Refactor/cleanup',
+  'Documentation'
+] as const
+
+export type HandoffTaskType = (typeof HANDOFF_TASK_TYPES)[number]
+
+export interface HandoffInput {
+  taskTitle: string
+  taskType: HandoffTaskType | ''
+  objective: string
+  /** newline-separated list */
+  importantFiles: string
+  /** newline-separated extra constraints (added to the defaults) */
+  constraints: string
+  /** newline-separated list */
+  acceptanceCriteria: string
+  includeProjectContext: boolean
+}
+
+export interface HandoffSaveResult {
+  ok: boolean
+  /** absolute path of the saved file */
+  path?: string
   error?: string
 }
 

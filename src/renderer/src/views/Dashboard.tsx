@@ -1,7 +1,14 @@
 import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project } from '@shared/types'
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
+import { calculateFocusScore, calculateHealth, rankByFocus } from '@shared/scoring'
 import { resolveSessionProject } from '@shared/sessionLogic'
 import { GitBadge } from '@/components/GitBadge'
+
+const HEALTH_DOT: Record<string, string> = {
+  green: 'bg-emerald-400',
+  yellow: 'bg-amber-400',
+  red: 'bg-rose-400'
+}
 
 const STATE_META: Record<string, { dot: string; label: string; text: string }> = {
   working: { dot: 'bg-sky-400 animate-pulse', label: 'working', text: 'text-sky-300' },
@@ -43,6 +50,9 @@ export function Dashboard({
     .slice(0, 6)
   // Projects with uncommitted work — the most actionable triage signal.
   const dirty = projects.filter((p) => (git[p.id]?.dirty ?? 0) > 0)
+  // Today's Focus — active projects ranked by focus score (FounderOS harvest).
+  const focus = rankByFocus(projects).slice(0, 5)
+  const blocked = projects.filter((p) => p.status === 'active' && (p.blockers?.length ?? 0) > 0)
   // Live Claude sessions (hooks-fed), waiting first, then working, then done.
   const order: Record<string, number> = { waiting: 0, working: 1, done: 2 }
   const sessions = Object.values(statuses)
@@ -75,13 +85,62 @@ export function Dashboard({
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-5">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-6">
         <Stat label="Projects" value={projects.length} />
         <Stat label="Favorites" value={favorites.length} />
         <Stat label="Types" value={counts.length} />
         <Stat label="Recently opened" value={recent.length} />
         <Stat label="Uncommitted" value={dirty.length} accent={dirty.length > 0} />
+        <Stat label="Blocked" value={blocked.length} accent={blocked.length > 0} />
       </div>
+
+      {focus.length > 0 && (
+        <div>
+          <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">
+            Today&apos;s focus
+          </h2>
+          <div className="rounded-xl border border-indigo-400/20 bg-indigo-400/[0.03] p-1">
+            {focus.map((p, i) => {
+              const health = calculateHealth(p)
+              return (
+                <div
+                  key={p.id}
+                  onClick={() => onOpen(p)}
+                  className="flex cursor-pointer items-center gap-3 rounded-lg px-3 py-2 hover:bg-white/5"
+                >
+                  <span className="w-4 shrink-0 text-right text-[11px] text-slate-600">{i + 1}</span>
+                  <span className={`h-2 w-2 shrink-0 rounded-full ${TYPE_META[p.type].dot}`} />
+                  <span className="min-w-0 truncate text-sm text-slate-200">{p.name}</span>
+                  <span
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${HEALTH_DOT[health.status]}`}
+                    title={health.reasons.join(' · ')}
+                  />
+                  {p.nextAction && (
+                    <span className="min-w-0 truncate text-xs text-slate-500" title={p.nextAction}>
+                      → {p.nextAction}
+                    </span>
+                  )}
+                  <span className="ml-auto shrink-0 text-xs font-semibold text-indigo-300">
+                    {calculateFocusScore(p).toFixed(1)}
+                  </span>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      onLaunch('claude', p)
+                    }}
+                    className="shrink-0 rounded-md bg-white/5 px-2 py-1 text-[11px] text-slate-300 hover:bg-indigo-500/80 hover:text-white"
+                  >
+                    ▸ Claude
+                  </button>
+                </div>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] text-slate-600">
+            Ranked by focus score — set stage, scores &amp; blockers in each project&apos;s detail panel.
+          </p>
+        </div>
+      )}
 
       {sessions.length > 0 && (
         <div>
