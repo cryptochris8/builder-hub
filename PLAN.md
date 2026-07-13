@@ -45,8 +45,9 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 **＋ New Project** modal (name · type grid · location/Browse · git + open-Claude toggles) → scaffolds the folder with a `CLAUDE.md` seeded from the matching `stack-profile` + `.env.example` (per-type key names) + `README.md` + `.gitignore` + `git init`, adds it to the registry, and drops you into an embedded Claude session. "Add existing" / "Rescan home" moved to the Projects toolbar. **Done** (typecheck + build green).
 
 ### ✅ Phase 5 — Polish, tests & package (core done)
-- ✅ **Connections panel** (Settings→Connections): lists MCP servers from `~/.claude.json` + each project's `.mcp.json`, explains how claude.ai connectors sync into Claude Code, GitHub-MCP add helper (copy), write-access note. GitHub already works via `gh` (authed, `repo` scope).
-- ✅ **Vitest harness**: pure logic extracted to `src/shared/projectLogic.ts` (sanitizeFolder, compareProjects, envExampleFor, detectTypeFromFiles); **19 tests green** (`npm test`).
+- ✅ **Connections panel** (Settings→Connections): originally a read-only list of MCP servers from `~/.claude.json` + each project's `.mcp.json`. **Superseded by Tier 3 below** — it's a full MCP manager now.
+- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`. **129 tests green** (`npm test`).
+- ✅ **ESLint (flat config) + Prettier**: `npm run lint` / `npm run format`. The React-Compiler rules from react-hooks v7 and `no-unescaped-entities` are disabled deliberately.
 - ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; currently 0.2.1). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
 - ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
 - Optional polish (not done): code signing (avoids SmartScreen warning), theming.
@@ -62,20 +63,38 @@ Terminal clipboard (smart paste: clipboard image → temp PNG path for Claude vi
 2. **Status board**: working/waiting/done dots on Claude tabs, amber sidebar pulse, Dashboard "Claude sessions" rail (click-to-focus, dismiss) — external sessions show too. All cwd keys normalized (`normPath`) because git porcelain emits forward slashes on Windows.
 3. **Task sessions**: per-task git worktrees (`hub/<task>` branch in `<project>.worktrees/<task>`, CLAUDE.md copied in), Claude tab per task, **⇄ Diff tab** (merge-base vs main branch incl. uncommitted, untracked list, 1MB cap) with **Merge back** (MERGE_HEAD/detached-HEAD guards, abort-own-merge-only) and **Discard**; removal kills the task's PTYs first (Windows cwd lock) and retries.
 
+### ✅ Tier 3 — MCP manager + punch-list (2026-07-02)
+Connections graduated from a read-only lister into a **live one-click MCP manager** wrapping the real `claude` CLI (`src/main/mcp.ts`, `ConnectionsView.tsx`, `src/shared/mcpLogic.ts`):
+1. **Live status** — `mcp:live` runs `claude mcp list` and parses it with `parseMcpList`, which is deliberately **glyph-agnostic** (it classifies on status *text*, because ✔/✘ mojibake through Windows codepages). Add / remove / sign-in / sign-out per server.
+2. **Curated catalog** — one-click add for github, context7, sentry, linear, notion, vercel, netlify, stripe (every URL verified against the live CLI, none guessed) + custom add-by-URL. claude.ai-synced connectors are bucketed separately: no Remove/Sign-out (they're managed on claude.ai), Sign in kept.
+3. **CLI exec safety** — `runClaude` resolves the native `claude.exe` and `execFile`s it with **`shell: false`** (argv array → no injection, spaces safe). A `.cmd`/`.bat` shim routes through `cmd.exe /d /s /c`. `shell: true` is never used: it concatenates args unquoted.
+4. **Punch-list cleared** — status filter chips + archived projects dimmed/sunk in `compareProjects` (#7); rescan descends one level into grouping folders like `New-apps/*` (#8); ESLint + Prettier adopted (#9).
+
 ### ✅ Tier 4 — FounderOS harvest: focus scoring + handoffs (2026-07-08)
 The lean port of FounderOS's remaining brains (full 10-tab detail + shadcn deliberately skipped — the Hub keeps its hand-rolled UI):
-1. **Scoring engine** (`src/shared/scoring.ts`): `calculateFocusScore` (FounderOS weights — revenue 30 / strategic 25 / excitement 20 / readiness 15 / inverted effort 10; ready-for-build ×1.10, launch-prep ×1.15, blockers ×0.8; 1-decimal for stable ranking) + `calculateHealth` (green/yellow/red with reasons; activity = max(updatedAt, lastOpenedAt)) + `rankByFocus`.
-2. **Data model**: optional `stage` (8 stages) + 5 score inputs + `blockers`/`nextAction`/`currentFocus` + brief fields (`shortDescription`, `problemSolved`, `targetAudience`, `monetizationModel`, `mvpDefinition`) on `Project` — no migration needed, EDITABLE whitelist extended.
-3. **Handoff generator** (`src/shared/handoff.ts`): `generateHandoff` + `buildClaudeBuildPrompt` + `buildMvpPlanPrompt` (FounderOS's toolchain section dropped — CLAUDE.md seeding already covers it). `handoff:save` IPC writes `<project>/handoffs/<date>-<slug>.md` (path resolved from the registry, never from the renderer).
+1. **Scoring engine** (`src/shared/scoring.ts`): `calculateFocusScore` (FounderOS weights — revenue 30 / strategic 25 / excitement 20 / readiness 15 / inverted effort 10; ready-for-build ×1.10, launch-prep ×1.15, blockers ×0.8) + `calculateHealth` (green/yellow/red with reasons; activity = max(updatedAt, lastOpenedAt)) + `rankByFocus`.
+2. **Data model**: optional `stage` (8 stages) + 5 score inputs + `blockers`/`nextAction`/`currentFocus` + brief fields (`shortDescription`, `problemSolved`, `targetAudience`, `monetizationModel`, `mvpDefinition`) on `Project` — no migration needed, editable whitelist extended.
+3. **Handoff generator** (`src/shared/handoff.ts`): `generateHandoff` + `buildClaudeBuildPrompt` + `buildMvpPlanPrompt` (FounderOS's toolchain section dropped — CLAUDE.md seeding already covers it). `handoff:save` IPC writes `<project>/handoffs/<date>-<slug>.md` (path resolved from the registry, never from the renderer; suffixed -2/-3 rather than overwriting).
 4. **UI**: Dashboard "Today's Focus" rail (top 5 active by score, health dots, next actions) + Blocked stat; ProjectDetail "Focus & health" section (stage, score inputs, next action, blockers) + collapsible Brief + ⇥ Handoff modal (live preview, copy / save-to-project).
-27 new Vitest tests (120 total green).
 
-### Phase 7 — Security cleanup (parallel, independent)
-Rotate the hardcoded Stability AI key in `The-Classified-Files/config.js`; fix the client-exposed `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_SECRET` in old founderos.
+**Reviewed 2026-07-13 (`6e6c2fe`) — this port shipped with 5 bugs, all now fixed.** Worth knowing because two of them shaped the design:
+- **The focus score is normalized, not clamped.** The 5 weights already sum to a max of 10, so *any* stage boost overshot a `Math.min(10)` clamp — every project with a base ≥8.7 tied at exactly 10.0 and `rankByFocus`'s alphabetical tiebreak then ranked a **worse** project first. It now divides by `MAX_BOOST` (1.15), which preserves the true ordering. Consequence: **10.0 is reserved for a perfect, unblocked, launch-prep project**, and unboosted scores read ~13% lower than a plain weighted average (all-5s = 4.3, not 5.0).
+- **A patch uses `null` to clear a field, `undefined` to leave it alone** (`ProjectPatch` in `types.ts`, applied by `applyProjectPatch` in `projectLogic.ts`). Before this, an optional field like `stage` could be *set but never unset* — "clear" arrived as `undefined`, indistinguishable from "not in this patch". Keep the distinction when adding editable fields.
+
+### Phase 7 — Security cleanup (code done; **rotation still pending — user action**)
+The **code** fixes have shipped in those repos: `The-Classified-Files/config.js` reads `process.env.STABILITY_API_KEY`, and old founderos's `useAuth.tsx` reads the server-only `GOOGLE_OAUTH_CLIENT_SECRET` (no `NEXT_PUBLIC_*` secret remains). What's left is **provider-side key rotation**: rotate the Stability AI key at platform.stability.ai, and the OAuth client secret in Google Cloud Console.
+
+## Known debt
+- **Electron is pinned to 33 (33.4.11); current is 43.** Out of Electron's 3-major support window → no security backports, in an app that renders remote content in `<webview>` tabs. **Top hygiene item.** The upgrade is gated on a matching `node-pty` prebuilt ABI (33 = abi 130) — verify in a scratch worktree first.
+- `sandbox: false` in the main window (`src/main/index.ts`) — punch-list #5, never flipped. The `will-attach-webview` / `will-navigate` guards are in place around it.
+- Tier 5 (headless `claude -p` dispatch, morning briefing) is **gated** on confirming whether non-interactive `claude -p` draws from a metered credit pool rather than the Max plan.
 
 ## Run it
 ```
-npm install      # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
-npm run dev      # opens the Builder Hub window
+npm install        # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
+npm run dev        # opens the Builder Hub window
 npm run typecheck
+npm test           # Vitest — 129 tests
+npm run lint       # ESLint
+npm run build:win  # NSIS installer → dist/
 ```
