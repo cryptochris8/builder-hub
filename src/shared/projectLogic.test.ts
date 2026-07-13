@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import {
+  applyProjectPatch,
   sanitizeFolder,
   compareProjects,
   envExampleFor,
@@ -23,6 +24,49 @@ const proj = (over: Partial<Project>): Project => ({
   createdAt: 0,
   updatedAt: 0,
   ...over
+})
+
+describe('applyProjectPatch', () => {
+  it('sets a whitelisted field', () => {
+    const p = applyProjectPatch(proj({}), { name: 'Renamed', stage: 'launch-prep' })
+    expect(p.name).toBe('Renamed')
+    expect(p.stage).toBe('launch-prep')
+  })
+
+  it('clears a field when the value is null (regression: stage could be set but never unset)', () => {
+    const p = applyProjectPatch(proj({ stage: 'launch-prep', revenueScore: 9 }), {
+      stage: null,
+      revenueScore: null
+    })
+    expect('stage' in p).toBe(false)
+    expect('revenueScore' in p).toBe(false)
+  })
+
+  it('leaves a field alone when it is absent or explicitly undefined', () => {
+    const p = applyProjectPatch(proj({ stage: 'building', notes: 'keep me' }), {
+      stage: undefined,
+      name: 'Renamed'
+    })
+    expect(p.stage).toBe('building') // undefined = "not in this patch", not "clear"
+    expect(p.notes).toBe('keep me') // absent entirely
+    expect(p.name).toBe('Renamed')
+  })
+
+  it('ignores fields outside the whitelist — a renderer cannot move a project', () => {
+    const p = applyProjectPatch(proj({ id: 'x', path: 'C:/x' }), {
+      id: 'hijacked',
+      path: 'C:/Windows/System32',
+      createdAt: 1
+    } as never)
+    expect(p.id).toBe('x')
+    expect(p.path).toBe('C:/x')
+    expect(p.createdAt).toBe(0)
+  })
+
+  it('cannot be used to delete a non-whitelisted field either', () => {
+    const p = applyProjectPatch(proj({ path: 'C:/x' }), { path: null } as never)
+    expect(p.path).toBe('C:/x')
+  })
 })
 
 describe('sanitizeFolder', () => {

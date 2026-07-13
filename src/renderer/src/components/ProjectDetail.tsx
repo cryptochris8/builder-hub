@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import type {
   LaunchKind,
   Project,
+  ProjectPatch,
   ProjectStage,
   ProjectStatus,
   ProjectType,
@@ -27,6 +28,8 @@ const SCORE_FIELDS = [
   ['effortScore', 'Effort', 'Remaining effort — high lowers the score']
 ] as const
 
+type ScoreKey = (typeof SCORE_FIELDS)[number][0]
+
 const STATUSES: ProjectStatus[] = ['active', 'idea', 'archived']
 const ACTIONS: { kind: LaunchKind; label: string; title?: string }[] = [
   { kind: 'claude', label: '▸ Claude', title: 'Embedded Claude Code session' },
@@ -51,7 +54,7 @@ export function ProjectDetail({
 }: {
   project: Project
   onClose: () => void
-  onUpdate: (id: string, patch: Partial<Project>) => void
+  onUpdate: (id: string, patch: ProjectPatch) => void
   onRemove: (id: string) => void
   onLaunch: (kind: LaunchKind, p: Project) => void
   onOpenTask: (p: Project, wt: WorktreeInfo) => void
@@ -65,15 +68,30 @@ export function ProjectDetail({
   const [newTask, setNewTask] = useState('')
   const [taskBusy, setTaskBusy] = useState(false)
   const [showHandoff, setShowHandoff] = useState(false)
+  /** What you've typed into a score box but not committed yet. A box with no
+   *  draft shows the stored value, so dropping the draft on blur makes the
+   *  field snap to what was actually saved — typing 99 shows the clamped 10,
+   *  and an emptied box shows empty because the score really was cleared. */
+  const [scoreDrafts, setScoreDrafts] = useState<Partial<Record<ScoreKey, string>>>({})
 
   const focusScore = calculateFocusScore(project)
   const health = calculateHealth(project)
 
-  const updateScore = (key: (typeof SCORE_FIELDS)[number][0], raw: string): void => {
+  const commitScore = (key: ScoreKey, raw: string): void => {
+    setScoreDrafts((drafts) => {
+      const next = { ...drafts }
+      delete next[key]
+      return next
+    })
     const v = raw.trim()
-    if (v === '') return
-    const n = Math.max(0, Math.min(10, Math.round(Number(v))))
-    if (!Number.isNaN(n) && n !== project[key]) onUpdate(project.id, { [key]: n } as Partial<Project>)
+    if (v === '') {
+      if (project[key] !== undefined) onUpdate(project.id, { [key]: null } as ProjectPatch)
+      return
+    }
+    const n = Number(v)
+    if (!Number.isFinite(n)) return
+    const clamped = Math.max(0, Math.min(10, Math.round(n)))
+    if (clamped !== project[key]) onUpdate(project.id, { [key]: clamped } as ProjectPatch)
   }
 
   const refreshTasks = (): void => {
@@ -239,8 +257,10 @@ export function ProjectDetail({
           </div>
           <div className="mt-1 space-y-2">
             <select
-              defaultValue={project.stage ?? ''}
-              onChange={(e) => onUpdate(project.id, { stage: (e.target.value || undefined) as ProjectStage })}
+              value={project.stage ?? ''}
+              onChange={(e) =>
+                onUpdate(project.id, { stage: (e.target.value || null) as ProjectStage | null })
+              }
               className={field}
               title="Product stage — ready-for-build and launch-prep boost the focus score"
             >
@@ -261,9 +281,10 @@ export function ProjectDetail({
                     type="number"
                     min={0}
                     max={10}
-                    defaultValue={project[key] ?? ''}
+                    value={scoreDrafts[key] ?? String(project[key] ?? '')}
                     placeholder="5"
-                    onBlur={(e) => updateScore(key, e.target.value)}
+                    onChange={(e) => setScoreDrafts((d) => ({ ...d, [key]: e.target.value }))}
+                    onBlur={(e) => commitScore(key, e.target.value)}
                     className="w-full rounded-md border border-white/10 bg-white/5 px-1 py-1 text-center text-xs text-slate-100 outline-none focus:border-indigo-400"
                   />
                 </div>

@@ -1,6 +1,52 @@
-import type { Project, ProjectType } from './types'
+import type { Project, ProjectPatch, ProjectType } from './types'
 
 // Pure, dependency-free logic (no electron/fs) so it's unit-testable with Vitest.
+
+/** The only fields the renderer is allowed to change. `id` and `path` are NOT
+ *  here on purpose — the handoff writer resolves its output path from the
+ *  registry, so a renderer that could rewrite `path` could write anywhere. */
+export const EDITABLE_FIELDS: (keyof Project)[] = [
+  'name',
+  'type',
+  'stack',
+  'url',
+  'status',
+  'favorite',
+  'notes',
+  // Focus & health + brief (FounderOS harvest)
+  'stage',
+  'revenueScore',
+  'strategicScore',
+  'excitementScore',
+  'readinessScore',
+  'effortScore',
+  'blockers',
+  'nextAction',
+  'currentFocus',
+  'shortDescription',
+  'problemSolved',
+  'targetAudience',
+  'monetizationModel',
+  'mvpDefinition'
+]
+
+/** Apply an edit to a project, in place. Only whitelisted fields move.
+ *  `undefined`/absent leaves a field alone; `null` CLEARS it. Without that
+ *  distinction an optional field (stage, a score) could be set but never
+ *  unset — "clear" arrived as `undefined`, which is indistinguishable from
+ *  "not in this patch", so the old value silently survived. */
+export function applyProjectPatch(project: Project, patch: ProjectPatch): Project {
+  for (const key of EDITABLE_FIELDS) {
+    if (!(key in patch)) continue
+    const value = patch[key]
+    if (value === undefined) continue
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    if (value === null) delete (project as any)[key]
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    else (project as any)[key] = value
+  }
+  return project
+}
 
 /** Turn a display name into a safe folder name; falls back to "new-project". */
 export function sanitizeFolder(name: string): string {

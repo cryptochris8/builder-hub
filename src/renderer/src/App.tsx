@@ -4,6 +4,7 @@ import type {
   GitStatus,
   LaunchKind,
   Project,
+  ProjectPatch,
   ProjectType,
   WorktreeInfo
 } from '@shared/types'
@@ -174,7 +175,7 @@ export default function App() {
     await refresh()
     notify(`Scanned ${r.scanned} · added ${r.added} new`)
   }
-  const onUpdate = async (id: string, patch: Partial<Project>): Promise<void> => {
+  const onUpdate = async (id: string, patch: ProjectPatch): Promise<void> => {
     await hub.projects.update(id, patch)
     await refresh()
   }

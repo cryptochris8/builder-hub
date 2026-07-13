@@ -6,12 +6,19 @@ import { randomUUID } from 'crypto'
 import { allProjects, persist } from './db'
 import { SEED_PROJECTS } from './seed-projects'
 import { TYPE_META } from '../shared/types'
-import { compareProjects, detectTypeFromFiles, envExampleFor, sanitizeFolder } from '../shared/projectLogic'
+import {
+  applyProjectPatch,
+  compareProjects,
+  detectTypeFromFiles,
+  envExampleFor,
+  sanitizeFolder
+} from '../shared/projectLogic'
 import type {
   CreateProjectOptions,
   CreateProjectResult,
   LaunchResult,
   Project,
+  ProjectPatch,
   ProjectType,
   RescanResult
 } from '../shared/types'
@@ -60,41 +67,11 @@ function insert(p: NewProject): Project {
   return project
 }
 
-const EDITABLE: (keyof Project)[] = [
-  'name',
-  'type',
-  'stack',
-  'url',
-  'status',
-  'favorite',
-  'notes',
-  // Focus & health + brief (FounderOS harvest)
-  'stage',
-  'revenueScore',
-  'strategicScore',
-  'excitementScore',
-  'readinessScore',
-  'effortScore',
-  'blockers',
-  'nextAction',
-  'currentFocus',
-  'shortDescription',
-  'problemSolved',
-  'targetAudience',
-  'monetizationModel',
-  'mvpDefinition'
-]
-
-export function updateProject(id: string, patch: Partial<Project>): Project | null {
+export function updateProject(id: string, patch: ProjectPatch): Project | null {
   const rows = allProjects()
   const project = rows.find((p) => p.id === id)
   if (!project) return null
-  for (const key of EDITABLE) {
-    if (key in patch && patch[key] !== undefined) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      ;(project as any)[key] = patch[key]
-    }
-  }
+  applyProjectPatch(project, patch)
   project.updatedAt = Date.now()
   persist(rows)
   return project
@@ -512,7 +489,7 @@ async function launchRobloxPlay(input: string): Promise<LaunchResult> {
 export function registerProjectIpc(): void {
   ipcMain.handle('projects:list', () => listProjects())
   ipcMain.handle('projects:add', () => addFromDialog())
-  ipcMain.handle('projects:update', (_e, id: string, patch: Partial<Project>) => updateProject(id, patch))
+  ipcMain.handle('projects:update', (_e, id: string, patch: ProjectPatch) => updateProject(id, patch))
   ipcMain.handle('projects:remove', (_e, id: string) => {
     removeProject(id)
     return true

@@ -84,6 +84,12 @@ export interface Project {
   mvpDefinition?: string
 }
 
+/** A `projects:update` payload. `undefined` (or absent) leaves a field alone;
+ *  `null` explicitly CLEARS it. Without the null sentinel an optional field
+ *  like `stage` could be set but never unset — the renderer's "clear" sent
+ *  `undefined`, which is indistinguishable from "not in this patch". */
+export type ProjectPatch = { [K in keyof Project]?: Project[K] | null }
+
 export interface TypeMeta {
   label: string
   /** Tailwind bg-* class for the colored dot */

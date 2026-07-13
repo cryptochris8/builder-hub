@@ -17,6 +17,7 @@ import type {
   McpTransport,
   PasteResult,
   Project,
+  ProjectPatch,
   PtyCreateOptions,
   PtyData,
   PtyExit,
@@ -35,7 +36,7 @@ const api = {
     add: (): Promise<Project | null> => ipcRenderer.invoke('projects:add'),
     create: (opts: CreateProjectOptions): Promise<CreateProjectResult> =>
       ipcRenderer.invoke('projects:create', opts),
-    update: (id: string, patch: Partial<Project>): Promise<Project | null> =>
+    update: (id: string, patch: ProjectPatch): Promise<Project | null> =>
       ipcRenderer.invoke('projects:update', id, patch),
     remove: (id: string): Promise<boolean> => ipcRenderer.invoke('projects:remove', id),
     rescan: (): Promise<RescanResult> => ipcRenderer.invoke('projects:rescan'),
