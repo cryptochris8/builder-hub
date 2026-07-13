@@ -8,6 +8,8 @@ import type {
   GitStatus,
   HandoffInput,
   HandoffSaveResult,
+  HubSettings,
+  SettingsSaveResult,
   LaunchResult,
   ListDirResult,
   McpActionResult,
@@ -69,6 +71,13 @@ const api = {
       ipcRenderer.on('pty:exit', h)
       return () => ipcRenderer.removeListener('pty:exit', h)
     }
+  },
+  settings: {
+    get: (): Promise<HubSettings> => ipcRenderer.invoke('settings:get'),
+    /** Only ever a mode string — main re-validates it against the allowlist before
+     *  it can reach the `claude` argv. The renderer never passes flags. */
+    set: (patch: Partial<HubSettings>): Promise<SettingsSaveResult> =>
+      ipcRenderer.invoke('settings:set', patch)
   },
   system: {
     pickDirectory: (): Promise<string | null> => ipcRenderer.invoke('dialog:pickDirectory'),

@@ -4,7 +4,9 @@ import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 
 import { basename, join } from 'path'
 import { randomUUID } from 'crypto'
 import { allProjects, persist } from './db'
+import { getSettings } from './settings'
 import { SEED_PROJECTS } from './seed-projects'
+import { claudeArgs } from '../shared/claudeLaunch'
 import { TYPE_META } from '../shared/types'
 import {
   applyProjectPatch,
@@ -396,9 +398,14 @@ function launchClaude(path: string): LaunchResult {
   // Interim external launch (the Hub normally embeds Claude via xterm + node-pty).
   // Both branches quote the path (`start /d` sets the working dir) so it survives
   // spaces and special characters.
+  // The permission-mode flags come from the same allowlist the embedded PTY uses, so
+  // both launch paths agree. They're static strings (no user input, no spaces), so
+  // concatenating them into the command line is safe — the PATH still gets quote().
+  const flags = claudeArgs(getSettings().claudePermissionMode).join(' ')
+  const claudeCmd = flags ? `claude ${flags}` : 'claude'
   const cmd = hasWindowsTerminal()
-    ? `wt -d ${quote(path)} cmd /k claude`
-    : `start "" /d ${quote(path)} cmd /k claude`
+    ? `wt -d ${quote(path)} cmd /k ${claudeCmd}`
+    : `start "" /d ${quote(path)} cmd /k ${claudeCmd}`
   const res = spawnDetached(cmd)
   if (res.ok) touchOpened(path)
   return res

@@ -5,7 +5,7 @@ _Folder name `builder-hub` is a working title — rebrand freely (e.g. "FounderO
 
 ## Locked decisions
 - **Shell:** Electron + **Vite/React + TypeScript + Tailwind** (via `electron-vite`). No Next.js.
-- **Data:** **local-first JSON store** (`projects.json` in userData). SQLite/better-sqlite3 was tried and dropped — it needs native compilation (ClangCL toolset missing here) and a JSON file is plenty for a personal registry. No login, no Firebase, no OAuth.
+- **Data:** **local-first JSON store** (`projects.json` in userData; app preferences alongside it in `settings.json`). SQLite/better-sqlite3 was tried and dropped — it needs native compilation (ClangCL toolset missing here) and a JSON file is plenty for a personal registry. No login, no Firebase, no OAuth.
 - **Claude:** **embedded terminal** (`xterm.js` + `node-pty`) running the real `claude` CLI in the project's folder → stays on the **Max plan**, keeps all MCP/tools.
 - **Harvest ~60% of FounderOS** (`C:\Users\chris\Personal-IDE\founderos`): data model, shadcn UI + 10-tab project detail, scoring engine, handoff generator. Replace its shell/build/auth.
 - **Stack awareness** is wired globally: `~/.claude/CLAUDE.md` + `~/.claude/stack-profiles/*` + `C:\Users\chris\TOOL-STACK.md`.
@@ -81,6 +81,19 @@ The lean port of FounderOS's remaining brains (full 10-tab detail + shadcn delib
 - **The focus score is normalized, not clamped.** The 5 weights already sum to a max of 10, so *any* stage boost overshot a `Math.min(10)` clamp — every project with a base ≥8.7 tied at exactly 10.0 and `rankByFocus`'s alphabetical tiebreak then ranked a **worse** project first. It now divides by `MAX_BOOST` (1.15), which preserves the true ordering. Consequence: **10.0 is reserved for a perfect, unblocked, launch-prep project**, and unboosted scores read ~13% lower than a plain weighted average (all-5s = 4.3, not 5.0).
 - **A patch uses `null` to clear a field, `undefined` to leave it alone** (`ProjectPatch` in `types.ts`, applied by `applyProjectPatch` in `projectLogic.ts`). Before this, an optional field like `stage` could be *set but never unset* — "clear" arrived as `undefined`, indistinguishable from "not in this patch". Keep the distinction when adding editable fields.
 
+### ✅ Claude permission mode (2026-07-13)
+Embedded sessions can now launch with permission checks relaxed or fully bypassed — "the dangerously-skip-permissions thing", built as a real **mode** rather than a binary toggle.
+1. **Settings store** (`src/main/settings.ts`): `settings.json` in userData, same atomic write pattern as `db.ts` (tmp + rename, `.bak`). First app preference; add future ones to `HubSettings`. A failed write does **not** throw, but it does return `{ ok: false }` — see the trap below.
+2. **The mapping is pure and allowlisted** (`src/shared/claudeLaunch.ts`): `default` → no flag · `acceptEdits` → `--permission-mode acceptEdits` · `bypassPermissions` → `--dangerously-skip-permissions` (verified against claude 2.1.207; equivalent to `--permission-mode bypassPermissions`). Both the embedded PTY and the external `wt`/`start` launcher build their argv from it, so they can't drift.
+3. **Security:** the renderer picks a mode *string*; **main** turns it into flags. `normalizeSettings()` validates on every read and every write, so an unknown value can never reach argv. `PtyCreateOptions` deliberately has **no** mode/argv field.
+4. **UI:** Connections → "Claude sessions" segmented control (amber for Bypass + a warning); Workspace Claude tabs opened in bypass carry a `⚠ bypass` chip. The mode applies at launch — running sessions keep the mode they started with.
+
+**Trap 1 — a lost save must not read as success.** `settings.json` is what gates `--dangerously-skip-permissions`, so `setSettings()` returns `SettingsSaveResult { ok, settings }`: the mode always applies in-memory, but `ok: false` means it never reached disk. Without that split, a Bypass→Ask downgrade whose write failed (AV lock, read-only, full disk) would toast "saved" and then come back up **in bypass** on the next launch. Don't collapse it back to a bare `HubSettings`.
+
+**Trap 2 — the first bypass session shows a disclaimer, not a session.** claude gates bypass behind a one-time "WARNING: Claude Code running in Bypass Permissions mode" confirm (default: *No, exit*), then records `skipDangerousModePermissionPrompt` in `~/.claude/settings.json`. Chris's machine already has that flag, which is why bypass starts clean here — a fresh profile will sit on the prompt until it's answered. The Hub **does not** write that flag for the user; accepting "disable every safety check" is theirs to do, once, in the terminal.
+
+**Trap 3 — bypass mostly kills the amber dot.** In bypass mode Claude's Notification hook stops emitting `permission_prompt` (no prompts exist), so the cockpit's **waiting** state largely disappears for those sessions — they read `working` → `done`. Expected, not a broken hook.
+
 ### Phase 7 — Security cleanup (code done; **rotation still pending — user action**)
 The **code** fixes have shipped in those repos: `The-Classified-Files/config.js` reads `process.env.STABILITY_API_KEY`, and old founderos's `useAuth.tsx` reads the server-only `GOOGLE_OAUTH_CLIENT_SECRET` (no `NEXT_PUBLIC_*` secret remains). What's left is **provider-side key rotation**: rotate the Stability AI key at platform.stability.ai, and the OAuth client secret in Google Cloud Console.
 
@@ -94,7 +107,7 @@ The **code** fixes have shipped in those repos: `The-Classified-Files/config.js`
 npm install        # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
 npm run dev        # opens the Builder Hub window
 npm run typecheck
-npm test           # Vitest — 129 tests
+npm test           # Vitest — 144 tests
 npm run lint       # ESLint
 npm run build:win  # NSIS installer → dist/
 ```

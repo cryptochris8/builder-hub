@@ -1,5 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
-import type { McpCatalogEntry, McpLiveServer, McpScope, McpStatus, McpTransport } from '@shared/types'
+import type {
+  ClaudePermissionMode,
+  HubSettings,
+  McpCatalogEntry,
+  McpLiveServer,
+  McpScope,
+  McpStatus,
+  McpTransport
+} from '@shared/types'
+import { CLAUDE_PERMISSION_MODES } from '@shared/types'
+import { PERMISSION_MODE_META } from '@shared/claudeLaunch'
 import { MCP_CATALOG, catalogInstalled, isClaudeAiConnector } from '@shared/mcpLogic'
 import { hub } from '@/lib/api'
 
@@ -16,7 +26,15 @@ const btn =
   'shrink-0 rounded-md bg-white/5 px-2 py-1 text-xs text-slate-300 transition hover:bg-white/10 disabled:opacity-40'
 const primaryBtn = `${btn} !bg-indigo-500/80 !text-white hover:!bg-indigo-400`
 
-export function ConnectionsView({ notify }: { notify: (msg: string, err?: boolean) => void }) {
+export function ConnectionsView({
+  settings,
+  onSettings,
+  notify
+}: {
+  settings: HubSettings
+  onSettings: (s: HubSettings) => void
+  notify: (msg: string, err?: boolean) => void
+}) {
   const [live, setLive] = useState<McpLiveServer[] | null>(null)
   const [liveError, setLiveError] = useState<string | null>(null)
   const [busy, setBusy] = useState<string | null>(null) // name being acted on
@@ -89,6 +107,9 @@ export function ConnectionsView({ notify }: { notify: (msg: string, err?: boolea
         <b className="text-slate-200">MCP</b>, the same tech as claude.ai Connectors. Anything connected here
         is available in every project you open.
       </p>
+
+      {/* Claude permission mode — what embedded sessions may do without asking */}
+      <PermissionMode settings={settings} onSettings={onSettings} notify={notify} />
 
       {/* Session status hooks (Tier 2) */}
       <section>
@@ -224,6 +245,98 @@ export function ConnectionsView({ notify }: { notify: (msg: string, err?: boolea
         </div>
       </section>
     </div>
+  )
+}
+
+function PermissionMode({
+  settings,
+  onSettings,
+  notify
+}: {
+  settings: HubSettings
+  onSettings: (s: HubSettings) => void
+  notify: (msg: string, err?: boolean) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  // A write that didn't reach disk still governs THIS run — but it reverts on restart,
+  // and for a Bypass→Ask downgrade that silently rearms bypass. Say so, don't hide it.
+  const [unsaved, setUnsaved] = useState(false)
+  const current = settings.claudePermissionMode
+  const meta = PERMISSION_MODE_META[current]
+
+  const choose = async (mode: ClaudePermissionMode): Promise<void> => {
+    if (mode === current || saving) return
+    setSaving(true)
+    try {
+      const res = await hub.settings.set({ claudePermissionMode: mode })
+      onSettings(res.settings) // the effective mode, persisted or not
+      setUnsaved(!res.ok)
+      if (res.ok) notify(`Claude sessions: ${PERMISSION_MODE_META[mode].label}`)
+      else notify("Applied for this run, but couldn't be saved — see Connections", true)
+    } catch {
+      notify('Could not save the permission mode', true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <section>
+      <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">Claude sessions</h2>
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+        <div className="mb-1 text-sm font-medium text-white">Permission mode</div>
+        <p className="mb-3 text-xs text-slate-500">
+          How much an embedded Claude session may do before it stops to ask you.
+        </p>
+
+        <div className="flex flex-wrap gap-1.5">
+          {CLAUDE_PERMISSION_MODES.map((mode) => {
+            const m = PERMISSION_MODE_META[mode]
+            const on = mode === current
+            const cls = on
+              ? m.danger
+                ? 'border-amber-400/60 bg-amber-500/15 text-amber-200'
+                : 'border-indigo-400/60 bg-indigo-500/20 text-white'
+              : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+            return (
+              <button
+                key={mode}
+                onClick={() => void choose(mode)}
+                disabled={saving}
+                title={m.blurb}
+                className={`rounded-md border px-3 py-1.5 text-xs transition disabled:opacity-40 ${cls}`}
+              >
+                {m.danger && '⚠ '}
+                {m.label}
+              </button>
+            )
+          })}
+        </div>
+
+        <p className="mt-3 text-xs text-slate-400">{meta.blurb}</p>
+
+        {meta.danger && (
+          <p className="mt-2 rounded border border-amber-500/20 bg-amber-500/5 px-2 py-1.5 text-[11px] text-amber-300/90">
+            ⚠ <b>Unguarded.</b> Claude will edit files and run shell commands with no confirmation — including
+            ones it gets wrong, and anything a web page or a file it reads talks it into. Use it only on
+            projects you trust and can revert (commit first). The first bypass session on a machine opens
+            Claude&apos;s own one-time disclaimer in the terminal — answer it once and it stops asking.
+          </p>
+        )}
+
+        {unsaved && (
+          <p className="mt-2 rounded border border-rose-500/25 bg-rose-500/5 px-2 py-1.5 text-[11px] text-rose-300/90">
+            Couldn&apos;t write <code>settings.json</code>. This mode applies to sessions you open now, but it
+            will <b>revert on restart</b> — so the Hub could come back up in a mode you thought you&apos;d
+            left.
+          </p>
+        )}
+
+        <p className="mt-2 text-[11px] text-slate-600">
+          Applies to newly opened Claude tabs — existing sessions keep the mode they started with.
+        </p>
+      </div>
+    </section>
   )
 }
 

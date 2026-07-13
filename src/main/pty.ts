@@ -5,6 +5,8 @@ import { spawn } from '@homebridge/node-pty-prebuilt-multiarch'
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch'
 import { randomUUID } from 'crypto'
 import { registryFilePath } from './hubContext'
+import { getSettings } from './settings'
+import { claudeShellArgs } from '../shared/claudeLaunch'
 import { HUB_HOOK_PORT, normPath } from '../shared/sessionLogic'
 import type { PtyCreateOptions } from '../shared/types'
 
@@ -94,8 +96,13 @@ export function registerPtyIpc(): void {
     const wc = e.sender
     hookWebContents(wc)
     const shell = defaultShell()
-    // On Windows, `cmd /k claude` starts Claude Code and keeps the shell alive after it exits.
-    const args = process.platform === 'win32' && opts.runClaude ? ['/k', 'claude'] : []
+    // On Windows, `cmd /k claude` starts Claude Code and keeps the shell alive after
+    // it exits. The permission mode is resolved HERE, in main, from settings.json —
+    // the renderer only says "run Claude", never what flags to pass (see claudeLaunch).
+    const args = claudeShellArgs(process.platform, {
+      runClaude: opts.runClaude,
+      mode: getSettings().claudePermissionMode
+    })
 
     // node-pty strips COLUMNS/LINES on Unix but NOT on Windows; a stale value from the
     // launching shell makes child TUIs (claude) latch a wrong width. Drop them so the

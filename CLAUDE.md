@@ -19,7 +19,7 @@
 - `src/preload/index.ts` — the single typed IPC bridge. `contextIsolation: true`, `nodeIntegration: false`.
 - `src/renderer/src/*` — React UI. Imports shared types via the `@shared/*` alias.
 - **`src/shared/*` — all pure logic, with no `electron`/`fs` imports.** This is the load-bearing convention: it's the only code that can be unit-tested, so **push logic down here rather than writing it inline in main or a component.** Every bug that has bitten this project twice lived in untestable main-process code.
-- **Tests: Vitest, and every piece of logic gets one.** `npm test` (129 tests). Run `npm run typecheck`, `npm test`, and `npm run lint` before claiming done — all three must be green.
+- **Tests: Vitest, and every piece of logic gets one.** `npm test` (144 tests). Run `npm run typecheck`, `npm test`, and `npm run lint` before claiming done — all three must be green.
 
 ## Gotchas learned the hard way
 - **A project patch uses `null` to CLEAR a field and `undefined` to leave it alone** (`ProjectPatch` / `applyProjectPatch`). Sending `undefined` to clear is indistinguishable from "not in this patch" — that bug let `stage` be set but never unset. Preserve the distinction when adding editable fields.
@@ -28,6 +28,10 @@
 - **Never `shell: true` when invoking the `claude` CLI.** It concatenates args unquoted (injection + breaks on spaces). Use `execFile` with an argv array; a `.cmd` shim routes through `cmd.exe /d /s /c`.
 - **Windows can't delete a directory that is some process's cwd** — kill a worktree's PTYs before removing it.
 - **Secrets never reach the renderer.** The handoff writer resolves its output path from the registry by project *id*; the renderer never sends a path. Keep it that way.
+- **The renderer never passes argv into `pty:create`.** It picks a *permission mode* (one of three allowlisted strings); **main** resolves that into `claude` flags from `settings.json` via `claudeArgs()` in `src/shared/claudeLaunch.ts`. `normalizeSettings()` is the choke point — an unknown mode falls back to `default`, so a compromised renderer can't inject a flag. Don't add a mode (or any argv) field to `PtyCreateOptions`.
+- **The first `bypassPermissions` session on a machine opens a disclaimer, not a session.** `claude` gates bypass behind a one-time *"WARNING: Claude Code running in Bypass Permissions mode"* confirm (default answer: **No, exit**) and remembers it as `skipDangerousModePermissionPrompt` in `~/.claude/settings.json`. This machine already has that flag, so bypass looks like it starts clean — **don't conclude the prompt doesn't exist** (a docs check and a subagent both got that wrong; only reading the installed binary caught it). A fresh profile sits on the prompt until it's answered. The Hub must **not** write that flag on the user's behalf.
+- **A failed `settings.json` write must never report success.** `setSettings()` returns `SettingsSaveResult { ok, settings }` — the mode applies in-memory regardless, but `ok: false` means it never hit disk. Collapse that back to a bare `HubSettings` and a Bypass→Ask downgrade whose write failed will toast *"saved"* and then come back up **in bypass** next launch. This is the one setting where failing open is dangerous.
+- **`bypassPermissions` mostly kills the amber "waiting" dot.** The cockpit's `waiting` state is fed by Claude's Notification hook, and in bypass mode the `permission_prompt` notification no longer fires (only `idle_prompt` does) — because there are no permission prompts. So a bypass session looks like it goes `working` → `done` with nothing in between. That's expected, not a broken hook; don't "fix" the status board for it.
 
 ## Tools & stacks available to me
 - **Full tool catalog** — every tool / service / API I use, and where each API key lives: `C:\Users\chris\TOOL-STACK.md`. Prefer tools I already have.

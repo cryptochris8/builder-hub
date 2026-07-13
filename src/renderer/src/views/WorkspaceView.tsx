@@ -1,4 +1,4 @@
-import type { ClaudeStatusEvent, Project } from '@shared/types'
+import type { ClaudePermissionMode, ClaudeStatusEvent, Project } from '@shared/types'
 import { TYPE_META } from '@shared/types'
 import { WORKTREE_BRANCH_PREFIX, normPath } from '@shared/sessionLogic'
 import { TerminalPane } from '@/components/TerminalPane'
@@ -18,6 +18,10 @@ export interface WorkspaceTab {
   cwd?: string
   /** task name for worktree sessions & diff tabs (branch = hub/<task>) */
   task?: string
+  /** Permission mode this Claude session was LAUNCHED with — a label only (main
+   *  resolves the real one from settings.json when it spawns the PTY). Changing the
+   *  setting later doesn't change a running session, so the chip must not either. */
+  mode?: ClaudePermissionMode
 }
 
 export const tabCwd = (t: WorkspaceTab): string => t.cwd ?? t.project.path
@@ -100,6 +104,14 @@ export function WorkspaceView({
                 {t.task && <span className="text-slate-500"> · {t.task}</span>}
               </span>
               <span className="text-[10px] text-slate-500">{meta.label}</span>
+              {t.kind === 'claude' && t.mode === 'bypassPermissions' && (
+                <span
+                  className="rounded bg-amber-500/15 px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide text-amber-300"
+                  title="Bypass — this session edits files and runs commands without asking"
+                >
+                  ⚠ bypass
+                </span>
+              )}
               {dot && <span className={`h-2 w-2 rounded-full ${dot.cls}`} title={dot.title} />}
               <button
                 onClick={(e) => {

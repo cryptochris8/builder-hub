@@ -11,6 +11,7 @@ import { registerHubContext } from './hubContext'
 import { ensureHooksInstalled, registerHookIpc, startHookServer, stopHookServer } from './hookServer'
 import { registerWorktreeIpc } from './worktrees'
 import { registerHandoffIpc } from './handoff'
+import { registerSettingsIpc } from './settings'
 
 // Custom scheme privileges must be declared before the app is ready.
 registerHubfileScheme()
@@ -107,6 +108,7 @@ app.whenReady().then(() => {
   // in sync so every Claude session can see and refer to all projects.
   registerHubContext()
   registerProjectIpc()
+  registerSettingsIpc()
   registerPtyIpc()
   registerMcpIpc()
   registerGitIpc()

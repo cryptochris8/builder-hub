@@ -2,12 +2,14 @@ import { useEffect, useRef, useState } from 'react'
 import type {
   ClaudeStatusEvent,
   GitStatus,
+  HubSettings,
   LaunchKind,
   Project,
   ProjectPatch,
   ProjectType,
   WorktreeInfo
 } from '@shared/types'
+import { DEFAULT_SETTINGS } from '@shared/claudeLaunch'
 import { normPath } from '@shared/sessionLogic'
 import { hub } from '@/lib/api'
 import { sendToClaudeTerminal } from '@/lib/terminalBus'
@@ -65,6 +67,13 @@ export default function App() {
   // Live Claude session states (fed by Claude Code hooks via main), keyed by
   // lowercased session cwd. Powers tab dots, the sidebar badge, and the rail.
   const [claudeStatus, setClaudeStatus] = useState<Record<string, ClaudeStatusEvent>>({})
+  // App preferences (currently just the Claude permission mode). Main owns the file
+  // and re-validates every write; this is the UI's mirror of it.
+  const [settings, setSettings] = useState<HubSettings>(DEFAULT_SETTINGS)
+
+  useEffect(() => {
+    hub.settings.get().then(setSettings)
+  }, [])
 
   useEffect(() => {
     return hub.claude.onStatus((e) => {
@@ -197,6 +206,10 @@ export default function App() {
   const openClaude = async (p: Project, opts?: { cwd: string; task: string }): Promise<void> => {
     const ctx = await hub.projects.ensureContext(p.id) // seed CLAUDE.md BEFORE the PTY spawns
     if (ctx.seeded) notify('Seeded CLAUDE.md so Claude knows your stack')
+    // Read the mode straight from main (not our mirror) so the chip can't disagree
+    // with the argv main is about to build. It's a LABEL — it is never sent back.
+    const live = await hub.settings.get()
+    setSettings(live)
     const cwd = normPath(opts?.cwd ?? p.path)
     // Key hoisted OUT of the updater: StrictMode double-invokes updaters, and two
     // Date.now() calls straddling a ms tick would desync activeKey from the tab.
@@ -210,7 +223,17 @@ export default function App() {
       if (existing) deadTabs.current.delete(existing.key)
       setActiveKey(key)
       const rest = existing ? prev.filter((t) => t.key !== existing.key) : prev
-      return [...rest, { key, kind: 'claude', project: p, cwd: opts?.cwd, task: opts?.task }]
+      return [
+        ...rest,
+        {
+          key,
+          kind: 'claude',
+          project: p,
+          cwd: opts?.cwd,
+          task: opts?.task,
+          mode: live.claudePermissionMode
+        }
+      ]
     })
     setView('workspace')
     await hub.projects.touch(p.id) // mark recently-opened → surfaces in Dashboard "Recent"
@@ -474,7 +497,7 @@ export default function App() {
                   onRescan={rescan}
                 />
               ) : (
-                <ConnectionsView notify={notify} />
+                <ConnectionsView settings={settings} onSettings={setSettings} notify={notify} />
               )}
             </div>
           )}

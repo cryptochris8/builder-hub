@@ -192,6 +192,31 @@ export interface PtyCreateOptions {
   rows?: number
   /** start the Claude Code CLI immediately (Windows: cmd /k claude) */
   runClaude?: boolean
+  // NOTE: no permission mode here. The renderer must never hand argv to pty:create —
+  // main reads the mode from settings.json (see src/main/settings.ts).
+}
+
+// How much Claude Code is allowed to do without asking, per launched session.
+// 'default' means "pass no flag" — Claude asks as usual (its own built-in behavior).
+// The other two map to real CLI flags; see claudeArgs() in src/shared/claudeLaunch.ts.
+export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermissions'] as const
+
+export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number]
+
+/** App-wide preferences, persisted in userData/settings.json. */
+export interface HubSettings {
+  claudePermissionMode: ClaudePermissionMode
+}
+
+/** Result of a settings write. `settings` is the EFFECTIVE value — it applies to this
+ *  run even when the disk write failed — while `ok` says whether it actually persisted.
+ *  The two are separate on purpose: this file gates `--dangerously-skip-permissions`, so
+ *  a silently-lost *downgrade* would bring the app back up in bypass while the UI had
+ *  said "Ask". A failed write is never reported as saved. */
+export interface SettingsSaveResult {
+  ok: boolean
+  settings: HubSettings
+  error?: string
 }
 
 // New-project wizard (Phase 4)
