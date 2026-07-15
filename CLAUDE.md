@@ -19,7 +19,7 @@
 - `src/preload/index.ts` — the single typed IPC bridge. `contextIsolation: true`, `nodeIntegration: false`.
 - `src/renderer/src/*` — React UI. Imports shared types via the `@shared/*` alias.
 - **`src/shared/*` — all pure logic, with no `electron`/`fs` imports.** This is the load-bearing convention: it's the only code that can be unit-tested, so **push logic down here rather than writing it inline in main or a component.** Every bug that has bitten this project twice lived in untestable main-process code.
-- **Tests: Vitest, and every piece of logic gets one.** `npm test` (144 tests). Run `npm run typecheck`, `npm test`, and `npm run lint` before claiming done — all three must be green.
+- **Tests: Vitest, and every piece of logic gets one.** `npm test` (167 tests). Run `npm run typecheck`, `npm test`, and `npm run lint` before claiming done — all three must be green.
 
 ## Gotchas learned the hard way
 - **A project patch uses `null` to CLEAR a field and `undefined` to leave it alone** (`ProjectPatch` / `applyProjectPatch`). Sending `undefined` to clear is indistinguishable from "not in this patch" — that bug let `stage` be set but never unset. Preserve the distinction when adding editable fields.

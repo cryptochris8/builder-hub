@@ -58,8 +58,5 @@ export function setSettings(patch: Partial<HubSettings>): SettingsSaveResult {
 
 export function registerSettingsIpc(): void {
   ipcMain.handle('settings:get', (): HubSettings => getSettings())
-  ipcMain.handle(
-    'settings:set',
-    (_e, patch: Partial<HubSettings>): SettingsSaveResult => setSettings(patch)
-  )
+  ipcMain.handle('settings:set', (_e, patch: Partial<HubSettings>): SettingsSaveResult => setSettings(patch))
 }

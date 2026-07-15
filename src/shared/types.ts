@@ -82,6 +82,13 @@ export interface Project {
   targetAudience?: string
   monetizationModel?: string
   mvpDefinition?: string
+
+  // --- Claude session routing (model + effort) — optional, no migration needed ---
+  /** how Claude launches for this project; absent = the global default */
+  sessionProfile?: SessionConfig
+  /** per-task overrides for worktree sessions, keyed by task name. Kept when a
+   *  task is removed so re-creating the same task keeps its profile. */
+  taskProfiles?: Record<string, SessionConfig>
 }
 
 /** A `projects:update` payload. `undefined` (or absent) leaves a field alone;
@@ -203,9 +210,36 @@ export const CLAUDE_PERMISSION_MODES = ['default', 'acceptEdits', 'bypassPermiss
 
 export type ClaudePermissionMode = (typeof CLAUDE_PERMISSION_MODES)[number]
 
+// Model aliases + effort levels the Hub may pass to `claude` — closed allowlists,
+// verified against the installed CLI (2.1.210): fable/opus/sonnet appear in
+// `claude --help` for --model; haiku was confirmed from the installed binary's
+// model picker ("haiku → claude-haiku-4-5"). --effort levels are from --help.
+// Nothing outside these arrays can ever reach argv (see sessionArgs()).
+export const CLAUDE_MODELS = ['opus', 'sonnet', 'haiku', 'fable'] as const
+export type ClaudeModel = (typeof CLAUDE_MODELS)[number]
+
+export const CLAUDE_EFFORTS = ['low', 'medium', 'high', 'xhigh', 'max'] as const
+export type ClaudeEffort = (typeof CLAUDE_EFFORTS)[number]
+
+// Session profiles: route heavy work to a strong model at high effort and chores
+// to a cheap model at low effort, so Max-plan usage goes to the work that needs it.
+export const SESSION_PROFILES = ['deep', 'standard', 'light', 'custom'] as const
+export type SessionProfileId = (typeof SESSION_PROFILES)[number]
+
+/** How a Claude session launches. `model`/`effort` are read ONLY when
+ *  profile === 'custom'; the named presets carry their own mapping
+ *  (PROFILE_PRESETS in claudeLaunch.ts). 'standard' passes no flags at all. */
+export interface SessionConfig {
+  profile: SessionProfileId
+  model?: ClaudeModel
+  effort?: ClaudeEffort
+}
+
 /** App-wide preferences, persisted in userData/settings.json. */
 export interface HubSettings {
   claudePermissionMode: ClaudePermissionMode
+  /** session profile used when a project doesn't set its own */
+  defaultSessionProfile: SessionConfig
 }
 
 /** Result of a settings write. `settings` is the EFFECTIVE value — it applies to this

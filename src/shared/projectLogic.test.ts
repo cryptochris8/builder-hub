@@ -67,6 +67,22 @@ describe('applyProjectPatch', () => {
     const p = applyProjectPatch(proj({ path: 'C:/x' }), { path: null } as never)
     expect(p.path).toBe('C:/x')
   })
+
+  it('sets and clears the session profile with the null sentinel', () => {
+    const p = applyProjectPatch(proj({}), { sessionProfile: { profile: 'deep' } })
+    expect(p.sessionProfile).toEqual({ profile: 'deep' })
+    applyProjectPatch(p, { sessionProfile: null })
+    expect('sessionProfile' in p).toBe(false)
+  })
+
+  it('sets and clears per-task profiles (whole-map replacement)', () => {
+    const p = applyProjectPatch(proj({}), {
+      taskProfiles: { 'fix-login': { profile: 'light' } }
+    })
+    expect(p.taskProfiles).toEqual({ 'fix-login': { profile: 'light' } })
+    applyProjectPatch(p, { taskProfiles: null })
+    expect('taskProfiles' in p).toBe(false)
+  })
 })
 
 describe('sanitizeFolder', () => {

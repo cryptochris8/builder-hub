@@ -1,5 +1,6 @@
-import type { ClaudePermissionMode, ClaudeStatusEvent, Project } from '@shared/types'
+import type { ClaudePermissionMode, ClaudeStatusEvent, Project, SessionConfig } from '@shared/types'
 import { TYPE_META } from '@shared/types'
+import { PROFILE_META } from '@shared/claudeLaunch'
 import { WORKTREE_BRANCH_PREFIX, normPath } from '@shared/sessionLogic'
 import { TerminalPane } from '@/components/TerminalPane'
 import { ViewerPane } from '@/components/ViewerPane'
@@ -22,6 +23,23 @@ export interface WorkspaceTab {
    *  resolves the real one from settings.json when it spawns the PTY). Changing the
    *  setting later doesn't change a running session, so the chip must not either. */
   mode?: ClaudePermissionMode
+  /** Session profile (model/effort) this Claude session was LAUNCHED with — same
+   *  label-only caveat as `mode`. */
+  profile?: SessionConfig
+}
+
+/** Chip text + style for a non-standard session profile; null = no chip. */
+function profileChip(p?: SessionConfig): { text: string; cls: string; title: string } | null {
+  if (!p || p.profile === 'standard') return null
+  if (p.profile === 'custom') {
+    const text = [p.model, p.effort].filter(Boolean).join(' · ') || 'custom'
+    return { text, cls: 'bg-slate-500/15 text-slate-300', title: PROFILE_META.custom.blurb }
+  }
+  return {
+    text: PROFILE_META[p.profile].label.toLowerCase(),
+    cls: p.profile === 'deep' ? 'bg-indigo-500/15 text-indigo-300' : 'bg-teal-500/15 text-teal-300',
+    title: PROFILE_META[p.profile].blurb
+  }
 }
 
 export const tabCwd = (t: WorkspaceTab): string => t.cwd ?? t.project.path
@@ -87,6 +105,7 @@ export function WorkspaceView({
           const meta = KIND_META[t.kind]
           const status = t.kind === 'claude' ? statuses[normPath(tabCwd(t))] : undefined
           const dot = status && status.state !== 'ended' ? STATE_DOT[status.state] : undefined
+          const chip = t.kind === 'claude' ? profileChip(t.profile) : null
           return (
             <div
               key={t.key}
@@ -110,6 +129,14 @@ export function WorkspaceView({
                   title="Bypass — this session edits files and runs commands without asking"
                 >
                   ⚠ bypass
+                </span>
+              )}
+              {chip && (
+                <span
+                  className={`rounded px-1 py-0.5 text-[9px] font-medium uppercase tracking-wide ${chip.cls}`}
+                  title={chip.title}
+                >
+                  {chip.text}
                 </span>
               )}
               {dot && <span className={`h-2 w-2 rounded-full ${dot.cls}`} title={dot.title} />}

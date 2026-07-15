@@ -4,10 +4,11 @@ import { existsSync } from 'fs'
 import { spawn } from '@homebridge/node-pty-prebuilt-multiarch'
 import type { IPty } from '@homebridge/node-pty-prebuilt-multiarch'
 import { randomUUID } from 'crypto'
+import { allProjects } from './db'
 import { registryFilePath } from './hubContext'
 import { getSettings } from './settings'
-import { claudeShellArgs } from '../shared/claudeLaunch'
-import { HUB_HOOK_PORT, normPath } from '../shared/sessionLogic'
+import { claudeShellArgs, resolveSessionConfig } from '../shared/claudeLaunch'
+import { HUB_HOOK_PORT, normPath, resolveSessionProject } from '../shared/sessionLogic'
 import type { PtyCreateOptions } from '../shared/types'
 
 interface Session {
@@ -97,11 +98,15 @@ export function registerPtyIpc(): void {
     hookWebContents(wc)
     const shell = defaultShell()
     // On Windows, `cmd /k claude` starts Claude Code and keeps the shell alive after
-    // it exits. The permission mode is resolved HERE, in main, from settings.json —
-    // the renderer only says "run Claude", never what flags to pass (see claudeLaunch).
+    // it exits. The permission mode AND the session profile (model/effort) are
+    // resolved HERE, in main — the renderer only says "run Claude", never what flags
+    // to pass (see claudeLaunch). Profile chain: task override → project → global.
+    const settings = getSettings()
+    const { project, task } = resolveSessionProject(opts.cwd, allProjects())
     const args = claudeShellArgs(process.platform, {
       runClaude: opts.runClaude,
-      mode: getSettings().claudePermissionMode
+      mode: settings.claudePermissionMode,
+      session: resolveSessionConfig(project, task, settings)
     })
 
     // node-pty strips COLUMNS/LINES on Unix but NOT on Windows; a stale value from the

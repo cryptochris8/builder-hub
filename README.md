@@ -17,7 +17,7 @@ Electron 33 · Vite · React 19 · TypeScript · Tailwind v4 · xterm.js + [`@ho
 npm install        # one-time (needs NODE_OPTIONS=--use-system-ca — TLS-inspecting proxy)
 npm run dev        # launch the app (dev, with HMR)
 npm run typecheck  # type-check
-npm test           # Vitest (129 tests)
+npm test           # Vitest (167 tests)
 npm run lint       # ESLint
 npm run format     # Prettier
 npm run build      # production build

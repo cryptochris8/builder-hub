@@ -7,7 +7,7 @@ _Folder name `builder-hub` is a working title — rebrand freely (e.g. "FounderO
 - **Shell:** Electron + **Vite/React + TypeScript + Tailwind** (via `electron-vite`). No Next.js.
 - **Data:** **local-first JSON store** (`projects.json` in userData; app preferences alongside it in `settings.json`). SQLite/better-sqlite3 was tried and dropped — it needs native compilation (ClangCL toolset missing here) and a JSON file is plenty for a personal registry. No login, no Firebase, no OAuth.
 - **Claude:** **embedded terminal** (`xterm.js` + `node-pty`) running the real `claude` CLI in the project's folder → stays on the **Max plan**, keeps all MCP/tools.
-- **Harvest ~60% of FounderOS** (`C:\Users\chris\Personal-IDE\founderos`): data model, shadcn UI + 10-tab project detail, scoring engine, handoff generator. Replace its shell/build/auth.
+- **Harvest FounderOS's brains** (`C:\Users\chris\Personal-IDE\founderos`): data model, scoring engine, handoff generator. Replace its shell/build/auth. (Its shadcn UI + 10-tab project detail were evaluated and **deliberately skipped** in Tier 4 — the Hub keeps its hand-rolled Tailwind UI.)
 - **Stack awareness** is wired globally: `~/.claude/CLAUDE.md` + `~/.claude/stack-profiles/*` + `C:\Users\chris\TOOL-STACK.md`.
 
 ## Why this won't repeat v1's pain
@@ -46,9 +46,9 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 
 ### ✅ Phase 5 — Polish, tests & package (core done)
 - ✅ **Connections panel** (Settings→Connections): originally a read-only list of MCP servers from `~/.claude.json` + each project's `.mcp.json`. **Superseded by Tier 3 below** — it's a full MCP manager now.
-- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`. **129 tests green** (`npm test`).
+- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`, `claudeLaunch`. **144 tests green** (`npm test`).
 - ✅ **ESLint (flat config) + Prettier**: `npm run lint` / `npm run format`. The React-Compiler rules from react-hooks v7 and `no-unescaped-entities` are disabled deliberately.
-- ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; currently 0.2.1). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
+- ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; version follows package.json). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
 - ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
 - Optional polish (not done): code signing (avoids SmartScreen warning), theming.
 
@@ -94,6 +94,13 @@ Embedded sessions can now launch with permission checks relaxed or fully bypasse
 
 **Trap 3 — bypass mostly kills the amber dot.** In bypass mode Claude's Notification hook stops emitting `permission_prompt` (no prompts exist), so the cockpit's **waiting** state largely disappears for those sessions — they read `working` → `done`. Expected, not a broken hook.
 
+### ✅ Session profiles — model + effort routing (2026-07-15)
+Route each Claude session to the right model at the right effort, so Max-plan usage goes to the work that needs it: **Deep** (`--model opus --effort high`), **Standard** (no flags — Claude's own default), **Light** (`--model haiku --effort low`), or **Custom** (model/effort hand-picked from closed allowlists). Flags verified against claude 2.1.210: `--model` aliases fable/opus/sonnet from `--help`, `haiku` confirmed from the installed binary's model picker; `--effort` levels low|medium|high|xhigh|max.
+1. **Resolution happens in main, not the renderer:** task override → project `sessionProfile` → global `defaultSessionProfile` → standard (`resolveSessionConfig` + `sessionArgs` in `claudeLaunch.ts`, both pure and tested). The embedded PTY and the external `wt`/`start` launcher compose these with the permission-mode flags from the same choke point, so the paths can't drift. The renderer still never sends argv — per-project/per-task choices are registry fields (through `EDITABLE_FIELDS`), and `normalizeSessionConfig` re-validates at launch time, so a garbage value on disk can never reach argv.
+2. **Auto-suggest** (`suggestProfile`): a pure keyword heuristic (refactor/debug/port/research… → Deep; typo/rename/docs/bump… → Light) defaults the task-creation picker. Zero tokens spent deciding; an Auto pick that suggests Standard stores nothing, so the task inherits the project/global profile.
+3. **UI:** Connections → default profile picker (with custom model/effort selects); ProjectDetail → per-project picker + per-task Auto picker at task creation + profile tag on task rows; Workspace Claude tabs carry a profile chip (label-only — same caveat as the ⚠ bypass chip).
+4. Removing a task deliberately keeps its `taskProfiles` entry — recreating the same task name keeps its profile.
+
 ### Phase 7 — Security cleanup (code done; **rotation still pending — user action**)
 The **code** fixes have shipped in those repos: `The-Classified-Files/config.js` reads `process.env.STABILITY_API_KEY`, and old founderos's `useAuth.tsx` reads the server-only `GOOGLE_OAUTH_CLIENT_SECRET` (no `NEXT_PUBLIC_*` secret remains). What's left is **provider-side key rotation**: rotate the Stability AI key at platform.stability.ai, and the OAuth client secret in Google Cloud Console.
 
@@ -107,7 +114,7 @@ The **code** fixes have shipped in those repos: `The-Classified-Files/config.js`
 npm install        # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
 npm run dev        # opens the Builder Hub window
 npm run typecheck
-npm test           # Vitest — 144 tests
+npm test           # Vitest — 167 tests
 npm run lint       # ESLint
 npm run build:win  # NSIS installer → dist/
 ```

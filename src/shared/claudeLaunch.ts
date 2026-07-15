@@ -18,10 +18,23 @@
 // prompt until someone answers it. The Hub deliberately does NOT write that flag: accepting
 // "turn off every safety check" is the user's call to make, in the terminal, once.
 
-import { CLAUDE_PERMISSION_MODES } from './types'
-import type { ClaudePermissionMode, HubSettings } from './types'
+import { CLAUDE_PERMISSION_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, SESSION_PROFILES } from './types'
+import type {
+  ClaudeEffort,
+  ClaudeModel,
+  ClaudePermissionMode,
+  HubSettings,
+  Project,
+  SessionConfig,
+  SessionProfileId
+} from './types'
 
-export const DEFAULT_SETTINGS: HubSettings = { claudePermissionMode: 'default' }
+/** Fresh default settings. Built per-call sites via normalizeSettings — never
+ *  hand this object itself to a caller that might mutate it. */
+export const DEFAULT_SETTINGS: HubSettings = {
+  claudePermissionMode: 'default',
+  defaultSessionProfile: { profile: 'standard' }
+}
 
 export const PERMISSION_MODE_META: Record<
   ClaudePermissionMode,
@@ -47,15 +60,119 @@ export function isPermissionMode(v: unknown): v is ClaudePermissionMode {
   return typeof v === 'string' && (CLAUDE_PERMISSION_MODES as readonly string[]).includes(v)
 }
 
+// ---------- session profiles (model + effort routing) ----------
+
+/** What each named profile launches. 'standard' and 'custom' are absent on
+ *  purpose: standard passes no flags, custom carries its own model/effort. */
+export const PROFILE_PRESETS: Record<'deep' | 'light', { model: ClaudeModel; effort: ClaudeEffort }> = {
+  deep: { model: 'opus', effort: 'high' },
+  light: { model: 'haiku', effort: 'low' }
+}
+
+export const PROFILE_META: Record<SessionProfileId, { label: string; blurb: string }> = {
+  deep: {
+    label: 'Deep',
+    blurb: 'Opus, high effort — architecture, complex builds, debugging, research.'
+  },
+  standard: {
+    label: 'Standard',
+    blurb: "No flags — Claude's own default model and effort."
+  },
+  light: {
+    label: 'Light',
+    blurb: 'Haiku, low effort — renames, docs, config chores, boilerplate.'
+  },
+  custom: {
+    label: 'Custom',
+    blurb: 'Hand-picked model and effort.'
+  }
+}
+
+export function isModel(v: unknown): v is ClaudeModel {
+  return typeof v === 'string' && (CLAUDE_MODELS as readonly string[]).includes(v)
+}
+
+export function isEffort(v: unknown): v is ClaudeEffort {
+  return typeof v === 'string' && (CLAUDE_EFFORTS as readonly string[]).includes(v)
+}
+
+export function isProfileId(v: unknown): v is SessionProfileId {
+  return typeof v === 'string' && (SESSION_PROFILES as readonly string[]).includes(v)
+}
+
+/** Tolerant read of a session config from disk or the renderer. Unknown shapes
+ *  become undefined (= inherit the next level up); unrecognized model/effort
+ *  values are DROPPED, never passed through. Always returns a fresh object. */
+export function normalizeSessionConfig(raw: unknown): SessionConfig | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined
+  const o = raw as { profile?: unknown; model?: unknown; effort?: unknown }
+  if (!isProfileId(o.profile)) return undefined
+  const cfg: SessionConfig = { profile: o.profile }
+  if (o.profile === 'custom') {
+    if (isModel(o.model)) cfg.model = o.model
+    if (isEffort(o.effort)) cfg.effort = o.effort
+  }
+  return cfg
+}
+
+/** The --model/--effort flags for a session config. Re-validates internally, so
+ *  even a config passed in un-normalized can only add allowlisted values. */
+export function sessionArgs(config: SessionConfig | undefined): string[] {
+  const c = normalizeSessionConfig(config)
+  if (!c || c.profile === 'standard') return []
+  const pick = c.profile === 'custom' ? { model: c.model, effort: c.effort } : PROFILE_PRESETS[c.profile]
+  const args: string[] = []
+  if (pick.model) args.push('--model', pick.model)
+  if (pick.effort) args.push('--effort', pick.effort)
+  return args
+}
+
+/** Which config governs a launch: task override → project → global default.
+ *  Invalid/missing levels fall through to the next one. */
+export function resolveSessionConfig(
+  project: Project | undefined,
+  task: string | undefined,
+  settings: HubSettings
+): SessionConfig {
+  const taskCfg = task ? normalizeSessionConfig(project?.taskProfiles?.[task]) : undefined
+  return (
+    taskCfg ??
+    normalizeSessionConfig(project?.sessionProfile) ??
+    normalizeSessionConfig(settings.defaultSessionProfile) ?? { profile: 'standard' }
+  )
+}
+
+// Keyword classes for the profile suggester. Word-ish boundaries, matched on
+// lowercased text. Deep wins when both match — over-spending beats under-thinking.
+const DEEP_WORDS =
+  /\b(refactor|architect|architecture|redesign|debug|investigate|research|port|migrat\w*|rewrite|perf|performance|optimi[sz]\w*|security|audit|algorithm|concurren\w*|race)\b/
+const LIGHT_WORDS =
+  /\b(rename|typo|bump|docs?|documentation|readme|comment|format|lint|copy|label|wording|tweak|chore|boilerplate)\b/
+
+/** Suggest a profile from free task text (task name, next action…). Pure
+ *  heuristic — zero tokens spent deciding. Unknown → 'standard'. */
+export function suggestProfile(text: string): SessionProfileId {
+  const t = (text ?? '').toLowerCase()
+  if (DEEP_WORDS.test(t)) return 'deep'
+  if (LIGHT_WORDS.test(t)) return 'light'
+  return 'standard'
+}
+
 /** Tolerant read of a persisted (or renderer-supplied) settings blob: anything
  *  unrecognized falls back to the safe default rather than throwing. Same defensive
  *  spirit as recoverRegistry() — a corrupt settings.json must never brick startup,
  *  and an unknown mode must never reach argv. */
 export function normalizeSettings(raw: unknown): HubSettings {
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { ...DEFAULT_SETTINGS }
-  const mode = (raw as { claudePermissionMode?: unknown }).claudePermissionMode
+  const o =
+    !raw || typeof raw !== 'object' || Array.isArray(raw)
+      ? {}
+      : (raw as { claudePermissionMode?: unknown; defaultSessionProfile?: unknown })
+  // Every field rebuilt fresh — never return (or nest) DEFAULT_SETTINGS itself.
   return {
-    claudePermissionMode: isPermissionMode(mode) ? mode : DEFAULT_SETTINGS.claudePermissionMode
+    claudePermissionMode: isPermissionMode(o.claudePermissionMode)
+      ? o.claudePermissionMode
+      : DEFAULT_SETTINGS.claudePermissionMode,
+    defaultSessionProfile: normalizeSessionConfig(o.defaultSessionProfile) ?? { profile: 'standard' }
   }
 }
 
@@ -77,8 +194,8 @@ export function claudeArgs(mode: ClaudePermissionMode): string[] {
  *  shell (today's behavior) — no auto-launch, so nothing to flag. */
 export function claudeShellArgs(
   platform: string,
-  opts: { runClaude?: boolean; mode?: ClaudePermissionMode }
+  opts: { runClaude?: boolean; mode?: ClaudePermissionMode; session?: SessionConfig }
 ): string[] {
   if (platform !== 'win32' || !opts.runClaude) return []
-  return ['/k', 'claude', ...claudeArgs(opts.mode ?? 'default')]
+  return ['/k', 'claude', ...claudeArgs(opts.mode ?? 'default'), ...sessionArgs(opts.session)]
 }

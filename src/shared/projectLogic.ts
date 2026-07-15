@@ -27,7 +27,11 @@ export const EDITABLE_FIELDS: (keyof Project)[] = [
   'problemSolved',
   'targetAudience',
   'monetizationModel',
-  'mvpDefinition'
+  'mvpDefinition',
+  // Claude session routing. Values are re-validated at LAUNCH time by
+  // normalizeSessionConfig — a garbage value stored here can never reach argv.
+  'sessionProfile',
+  'taskProfiles'
 ]
 
 /** Apply an edit to a project, in place. Only whitelisted fields move.

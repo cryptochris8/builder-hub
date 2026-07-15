@@ -1,15 +1,19 @@
 import { useCallback, useEffect, useState } from 'react'
 import type {
+  ClaudeEffort,
+  ClaudeModel,
   ClaudePermissionMode,
   HubSettings,
   McpCatalogEntry,
   McpLiveServer,
   McpScope,
   McpStatus,
-  McpTransport
+  McpTransport,
+  SessionConfig,
+  SessionProfileId
 } from '@shared/types'
-import { CLAUDE_PERMISSION_MODES } from '@shared/types'
-import { PERMISSION_MODE_META } from '@shared/claudeLaunch'
+import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, SESSION_PROFILES } from '@shared/types'
+import { PERMISSION_MODE_META, PROFILE_META } from '@shared/claudeLaunch'
 import { MCP_CATALOG, catalogInstalled, isClaudeAiConnector } from '@shared/mcpLogic'
 import { hub } from '@/lib/api'
 
@@ -110,6 +114,9 @@ export function ConnectionsView({
 
       {/* Claude permission mode — what embedded sessions may do without asking */}
       <PermissionMode settings={settings} onSettings={onSettings} notify={notify} />
+
+      {/* Default session profile — which model + effort new sessions launch with */}
+      <SessionProfileDefault settings={settings} onSettings={onSettings} notify={notify} />
 
       {/* Session status hooks (Tier 2) */}
       <section>
@@ -334,6 +341,123 @@ function PermissionMode({
 
         <p className="mt-2 text-[11px] text-slate-600">
           Applies to newly opened Claude tabs — existing sessions keep the mode they started with.
+        </p>
+      </div>
+    </section>
+  )
+}
+
+function SessionProfileDefault({
+  settings,
+  onSettings,
+  notify
+}: {
+  settings: HubSettings
+  onSettings: (s: HubSettings) => void
+  notify: (msg: string, err?: boolean) => void
+}) {
+  const [saving, setSaving] = useState(false)
+  const current: SessionConfig = settings.defaultSessionProfile ?? { profile: 'standard' }
+
+  const save = async (cfg: SessionConfig): Promise<void> => {
+    if (saving) return
+    setSaving(true)
+    try {
+      const res = await hub.settings.set({ defaultSessionProfile: cfg })
+      onSettings(res.settings)
+      if (res.ok) notify(`Default session profile: ${PROFILE_META[cfg.profile].label}`)
+      else notify("Applied for this run, but couldn't be saved", true)
+    } catch {
+      notify('Could not save the session profile', true)
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const choose = (profile: SessionProfileId): void => {
+    if (profile === current.profile) return
+    // Switching to custom keeps whatever model/effort was last picked.
+    void save(profile === 'custom' ? { profile, model: current.model, effort: current.effort } : { profile })
+  }
+
+  const sel =
+    'rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-100 outline-none focus:border-indigo-400'
+
+  return (
+    <section>
+      <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
+        <div className="mb-1 text-sm font-medium text-white">Session profile — model &amp; effort</div>
+        <p className="mb-3 text-xs text-slate-500">
+          Route deep work to a strong model at high effort and chores to a cheap one at low effort, so
+          Max-plan usage goes where it matters. This is the default — projects and tasks can override it.
+        </p>
+
+        <div className="flex flex-wrap gap-1.5">
+          {SESSION_PROFILES.map((p) => {
+            const on = p === current.profile
+            return (
+              <button
+                key={p}
+                onClick={() => choose(p)}
+                disabled={saving}
+                title={PROFILE_META[p].blurb}
+                className={`rounded-md border px-3 py-1.5 text-xs transition disabled:opacity-40 ${
+                  on
+                    ? 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                    : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+                }`}
+              >
+                {PROFILE_META[p].label}
+              </button>
+            )
+          })}
+        </div>
+
+        {current.profile === 'custom' && (
+          <div className="mt-2 flex items-center gap-2">
+            <select
+              value={current.model ?? ''}
+              disabled={saving}
+              onChange={(e) =>
+                void save({ ...current, model: (e.target.value || undefined) as ClaudeModel | undefined })
+              }
+              className={sel}
+              title="Model alias passed as --model"
+            >
+              <option value="" className="bg-[#0d1320]">
+                model: default
+              </option>
+              {CLAUDE_MODELS.map((m) => (
+                <option key={m} value={m} className="bg-[#0d1320]">
+                  {m}
+                </option>
+              ))}
+            </select>
+            <select
+              value={current.effort ?? ''}
+              disabled={saving}
+              onChange={(e) =>
+                void save({ ...current, effort: (e.target.value || undefined) as ClaudeEffort | undefined })
+              }
+              className={sel}
+              title="Effort level passed as --effort"
+            >
+              <option value="" className="bg-[#0d1320]">
+                effort: default
+              </option>
+              {CLAUDE_EFFORTS.map((ef) => (
+                <option key={ef} value={ef} className="bg-[#0d1320]">
+                  {ef}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        <p className="mt-3 text-xs text-slate-400">{PROFILE_META[current.profile].blurb}</p>
+        <p className="mt-2 text-[11px] text-slate-600">
+          Applies to newly opened Claude sessions — running ones keep what they launched with. Set a
+          per-project profile in the project&apos;s detail panel; tasks can pick their own when created.
         </p>
       </div>
     </section>

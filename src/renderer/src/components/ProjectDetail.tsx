@@ -1,14 +1,27 @@
 import { useEffect, useState } from 'react'
 import type {
+  ClaudeEffort,
+  ClaudeModel,
   LaunchKind,
   Project,
   ProjectPatch,
   ProjectStage,
   ProjectStatus,
   ProjectType,
+  SessionConfig,
+  SessionProfileId,
   WorktreeInfo
 } from '@shared/types'
-import { PROJECT_STAGES, PROJECT_TYPES, STAGE_LABELS, TYPE_META } from '@shared/types'
+import {
+  CLAUDE_EFFORTS,
+  CLAUDE_MODELS,
+  PROJECT_STAGES,
+  PROJECT_TYPES,
+  SESSION_PROFILES,
+  STAGE_LABELS,
+  TYPE_META
+} from '@shared/types'
+import { PROFILE_META, suggestProfile } from '@shared/claudeLaunch'
 import { calculateFocusScore, calculateHealth } from '@shared/scoring'
 import { sanitizeBranch } from '@shared/sessionLogic'
 import { HandoffModal } from '@/components/HandoffModal'
@@ -67,6 +80,8 @@ export function ProjectDetail({
   const [worktrees, setWorktrees] = useState<WorktreeInfo[] | null>(null)
   const [newTask, setNewTask] = useState('')
   const [taskBusy, setTaskBusy] = useState(false)
+  /** Session profile for the task being created. 'auto' follows suggestProfile(newTask). */
+  const [taskProfilePick, setTaskProfilePick] = useState<SessionProfileId | 'auto'>('auto')
   const [showHandoff, setShowHandoff] = useState(false)
   /** What you've typed into a score box but not committed yet. A box with no
    *  draft shows the stored value, so dropping the draft on blur makes the
@@ -109,9 +124,21 @@ export function ProjectDetail({
       notify(res.error ?? 'Could not create the task worktree', true)
       return
     }
+    // Store the task's session profile BEFORE opening Claude — main resolves the
+    // registry at PTY-spawn time. An 'auto' pick that suggests standard stores
+    // nothing, so the task still inherits the project/global profile.
+    const taskKey = sanitizeBranch(task)
+    const picked = taskProfilePick === 'auto' ? suggestProfile(task) : taskProfilePick
+    let launchProject = project
+    if (taskProfilePick !== 'auto' || picked !== 'standard') {
+      const taskProfiles = { ...(project.taskProfiles ?? {}), [taskKey]: { profile: picked } }
+      await hub.projects.update(project.id, { taskProfiles })
+      launchProject = { ...project, taskProfiles } // fresh copy so the tab chip matches
+    }
     setNewTask('')
+    setTaskProfilePick('auto')
     refreshTasks()
-    onOpenTask(project, { path: res.path, branch: res.branch, task: sanitizeBranch(task) })
+    onOpenTask(launchProject, { path: res.path, branch: res.branch, task: taskKey })
   }
 
   const removeTask = async (wt: WorktreeInfo): Promise<void> => {
@@ -372,6 +399,108 @@ export function ProjectDetail({
         </details>
 
         <div>
+          <div className={label}>Claude session profile — model &amp; effort</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => {
+                if (project.sessionProfile) onUpdate(project.id, { sessionProfile: null })
+              }}
+              title="Use the global default (Connections)"
+              className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                !project.sessionProfile
+                  ? 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                  : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+              }`}
+            >
+              Global
+            </button>
+            {SESSION_PROFILES.map((p) => {
+              const on = project.sessionProfile?.profile === p
+              return (
+                <button
+                  key={p}
+                  onClick={() => {
+                    if (!on)
+                      onUpdate(project.id, {
+                        sessionProfile:
+                          p === 'custom'
+                            ? {
+                                profile: p,
+                                model: project.sessionProfile?.model,
+                                effort: project.sessionProfile?.effort
+                              }
+                            : { profile: p }
+                      })
+                  }}
+                  title={PROFILE_META[p].blurb}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                    on
+                      ? 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                      : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+                  }`}
+                >
+                  {PROFILE_META[p].label}
+                </button>
+              )
+            })}
+          </div>
+          {project.sessionProfile?.profile === 'custom' && (
+            <div className="mt-1.5 grid grid-cols-2 gap-1.5">
+              <select
+                value={project.sessionProfile.model ?? ''}
+                onChange={(e) =>
+                  onUpdate(project.id, {
+                    sessionProfile: {
+                      ...(project.sessionProfile as SessionConfig),
+                      model: (e.target.value || undefined) as ClaudeModel | undefined
+                    }
+                  })
+                }
+                className={field}
+                title="Model alias passed as --model"
+              >
+                <option value="" className="bg-[#0d1320]">
+                  model: default
+                </option>
+                {CLAUDE_MODELS.map((m) => (
+                  <option key={m} value={m} className="bg-[#0d1320]">
+                    {m}
+                  </option>
+                ))}
+              </select>
+              <select
+                value={project.sessionProfile.effort ?? ''}
+                onChange={(e) =>
+                  onUpdate(project.id, {
+                    sessionProfile: {
+                      ...(project.sessionProfile as SessionConfig),
+                      effort: (e.target.value || undefined) as ClaudeEffort | undefined
+                    }
+                  })
+                }
+                className={field}
+                title="Effort level passed as --effort"
+              >
+                <option value="" className="bg-[#0d1320]">
+                  effort: default
+                </option>
+                {CLAUDE_EFFORTS.map((ef) => (
+                  <option key={ef} value={ef} className="bg-[#0d1320]">
+                    {ef}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-600">
+            {project.sessionProfile
+              ? PROFILE_META[project.sessionProfile.profile].blurb
+              : 'Uses the global default (Connections). '}
+            {' Applies to newly opened sessions for this project.'}
+          </p>
+        </div>
+
+        <div>
           <div className={label}>Task sessions — isolated git worktrees</div>
           <div className="mt-1 space-y-1.5">
             {worktrees === null ? (
@@ -384,6 +513,15 @@ export function ProjectDetail({
                 >
                   <span className="min-w-0 flex-1 truncate text-xs text-slate-200" title={wt.path}>
                     ⌥ {wt.task}
+                    {project.taskProfiles?.[wt.task] &&
+                      project.taskProfiles[wt.task].profile !== 'standard' && (
+                        <span
+                          className="ml-1.5 rounded bg-white/5 px-1 py-0.5 text-[9px] uppercase tracking-wide text-slate-400"
+                          title={PROFILE_META[project.taskProfiles[wt.task].profile]?.blurb}
+                        >
+                          {PROFILE_META[project.taskProfiles[wt.task].profile]?.label ?? '?'}
+                        </span>
+                      )}
                   </span>
                   <button
                     onClick={() => onOpenTask(project, wt)}
@@ -420,6 +558,21 @@ export function ProjectDetail({
                 placeholder="new task, e.g. fix-login"
                 className="min-w-0 flex-1 rounded-md border border-white/10 bg-white/5 px-2 py-1 text-xs text-slate-100 outline-none focus:border-indigo-400"
               />
+              <select
+                value={taskProfilePick}
+                onChange={(e) => setTaskProfilePick(e.target.value as SessionProfileId | 'auto')}
+                className="rounded-md border border-white/10 bg-white/5 px-1.5 py-1 text-xs text-slate-300 outline-none focus:border-indigo-400"
+                title="Session profile for this task's Claude session. Auto suggests from the task name (keyword heuristic, zero tokens); when nothing matches it inherits the project/global profile."
+              >
+                <option value="auto" className="bg-[#0d1320]">
+                  Auto{newTask.trim() ? `: ${PROFILE_META[suggestProfile(newTask)].label}` : ''}
+                </option>
+                {SESSION_PROFILES.filter((p) => p !== 'custom').map((p) => (
+                  <option key={p} value={p} className="bg-[#0d1320]">
+                    {PROFILE_META[p].label}
+                  </option>
+                ))}
+              </select>
               <button
                 onClick={() => void createTask()}
                 disabled={!newTask.trim() || taskBusy}
