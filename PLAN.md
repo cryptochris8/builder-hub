@@ -46,7 +46,7 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 
 ### ✅ Phase 5 — Polish, tests & package (core done)
 - ✅ **Connections panel** (Settings→Connections): originally a read-only list of MCP servers from `~/.claude.json` + each project's `.mcp.json`. **Superseded by Tier 3 below** — it's a full MCP manager now.
-- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`, `claudeLaunch`. **144 tests green** (`npm test`).
+- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`, `claudeLaunch`. **167 tests green** (`npm test`).
 - ✅ **ESLint (flat config) + Prettier**: `npm run lint` / `npm run format`. The React-Compiler rules from react-hooks v7 and `no-unescaped-entities` are disabled deliberately.
 - ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; version follows package.json). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
 - ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
