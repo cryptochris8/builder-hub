@@ -75,6 +75,13 @@ describe('applyProjectPatch', () => {
     expect('sessionProfile' in p).toBe(false)
   })
 
+  it('sets and clears the per-project permission mode with the null sentinel', () => {
+    const p = applyProjectPatch(proj({}), { claudePermissionMode: 'default' })
+    expect(p.claudePermissionMode).toBe('default')
+    applyProjectPatch(p, { claudePermissionMode: null })
+    expect('claudePermissionMode' in p).toBe(false)
+  })
+
   it('sets and clears per-task profiles (whole-map replacement)', () => {
     const p = applyProjectPatch(proj({}), {
       taskProfiles: { 'fix-login': { profile: 'light' } }

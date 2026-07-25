@@ -15,13 +15,14 @@ import type {
 import {
   CLAUDE_EFFORTS,
   CLAUDE_MODELS,
+  CLAUDE_PERMISSION_MODES,
   PROJECT_STAGES,
   PROJECT_TYPES,
   SESSION_PROFILES,
   STAGE_LABELS,
   TYPE_META
 } from '@shared/types'
-import { PROFILE_META, suggestProfile } from '@shared/claudeLaunch'
+import { PERMISSION_MODE_META, PROFILE_META, suggestProfile } from '@shared/claudeLaunch'
 import { calculateFocusScore, calculateHealth } from '@shared/scoring'
 import { sanitizeBranch } from '@shared/sessionLogic'
 import { HandoffModal } from '@/components/HandoffModal'
@@ -495,6 +496,53 @@ export function ProjectDetail({
           <p className="mt-1 text-[10px] leading-relaxed text-slate-600">
             {project.sessionProfile
               ? PROFILE_META[project.sessionProfile.profile].blurb
+              : 'Uses the global default (Connections). '}
+            {' Applies to newly opened sessions for this project.'}
+          </p>
+        </div>
+
+        <div>
+          <div className={label}>Claude permission mode</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => {
+                if (project.claudePermissionMode) onUpdate(project.id, { claudePermissionMode: null })
+              }}
+              title="Use the global default (Connections)"
+              className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                !project.claudePermissionMode
+                  ? 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                  : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+              }`}
+            >
+              Global
+            </button>
+            {CLAUDE_PERMISSION_MODES.map((mode) => {
+              const on = project.claudePermissionMode === mode
+              const m = PERMISSION_MODE_META[mode]
+              const cls = on
+                ? m.danger
+                  ? 'border-amber-400/60 bg-amber-500/15 text-amber-200'
+                  : 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+              return (
+                <button
+                  key={mode}
+                  onClick={() => {
+                    if (!on) onUpdate(project.id, { claudePermissionMode: mode })
+                  }}
+                  title={m.blurb}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition ${cls}`}
+                >
+                  {m.danger && '⚠ '}
+                  {m.label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-600">
+            {project.claudePermissionMode
+              ? PERMISSION_MODE_META[project.claudePermissionMode].blurb
               : 'Uses the global default (Connections). '}
             {' Applies to newly opened sessions for this project.'}
           </p>

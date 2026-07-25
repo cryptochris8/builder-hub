@@ -30,11 +30,23 @@ import type {
 } from './types'
 
 /** Fresh default settings. Built per-call sites via normalizeSettings — never
- *  hand this object itself to a caller that might mutate it. */
+ *  hand this object itself to a caller that might mutate it.
+ *
+ *  The out-of-box permission mode is `bypassPermissions`: this is a personal,
+ *  single-user command center where the owner runs Claude unguarded by default and
+ *  toggles individual projects back to Ask (per-project `claudePermissionMode`). Note
+ *  this is only the default for a settings.json with NO recorded mode — a stored value
+ *  that's PRESENT but garbage still fails safe to 'default' (see normalizeSettings). */
 export const DEFAULT_SETTINGS: HubSettings = {
-  claudePermissionMode: 'default',
+  claudePermissionMode: 'bypassPermissions',
   defaultSessionProfile: { profile: 'standard' }
 }
+
+/** Where a corrupt/tampered mode value lands. Deliberately NOT the fresh-install
+ *  default: "skip every safety check" must never be reached by *failing open* — only
+ *  by an explicit, recorded choice. A missing key is a fresh install (→ DEFAULT); a
+ *  present-but-invalid key is corruption or tampering (→ here). */
+const SAFE_MODE_FALLBACK: ClaudePermissionMode = 'default'
 
 export const PERMISSION_MODE_META: Record<
   ClaudePermissionMode,
@@ -169,11 +181,30 @@ export function normalizeSettings(raw: unknown): HubSettings {
       : (raw as { claudePermissionMode?: unknown; defaultSessionProfile?: unknown })
   // Every field rebuilt fresh — never return (or nest) DEFAULT_SETTINGS itself.
   return {
+    // Absent key = fresh install → the (bypass) default. Present but invalid = corruption
+    // or a renderer trying to smuggle a flag → fail SAFE, never open. The security
+    // property holds either way: the worst a bad value yields is an allowlisted mode, not
+    // arbitrary argv. See DEFAULT_SETTINGS / SAFE_MODE_FALLBACK.
     claudePermissionMode: isPermissionMode(o.claudePermissionMode)
       ? o.claudePermissionMode
-      : DEFAULT_SETTINGS.claudePermissionMode,
+      : o.claudePermissionMode === undefined
+        ? DEFAULT_SETTINGS.claudePermissionMode
+        : SAFE_MODE_FALLBACK,
     defaultSessionProfile: normalizeSessionConfig(o.defaultSessionProfile) ?? { profile: 'standard' }
   }
+}
+
+/** Which permission mode governs a launch: per-project override → global default.
+ *  Re-validates the stored project value with isPermissionMode, so — exactly like
+ *  resolveSessionConfig — a garbage field on disk falls through to the global setting
+ *  rather than reaching argv. `settings.claudePermissionMode` is itself already
+ *  normalized, so the result is always an allowlisted mode. */
+export function resolvePermissionMode(
+  project: Project | undefined,
+  settings: HubSettings
+): ClaudePermissionMode {
+  if (project && isPermissionMode(project.claudePermissionMode)) return project.claudePermissionMode
+  return settings.claudePermissionMode
 }
 
 /** The flags appended after `claude`. 'default' passes nothing at all. */

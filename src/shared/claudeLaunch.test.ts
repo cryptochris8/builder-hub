@@ -9,6 +9,7 @@ import {
   isPermissionMode,
   normalizeSessionConfig,
   normalizeSettings,
+  resolvePermissionMode,
   resolveSessionConfig,
   sessionArgs,
   suggestProfile
@@ -81,7 +82,8 @@ describe('isPermissionMode', () => {
 })
 
 describe('normalizeSettings', () => {
-  it('falls back to the safe default for missing/garbage input', () => {
+  it('falls back to the fresh-install defaults for missing/absent input', () => {
+    // No object / no recorded mode = fresh install → DEFAULT_SETTINGS (bypass by default).
     expect(normalizeSettings(null)).toEqual(DEFAULT_SETTINGS)
     expect(normalizeSettings(undefined)).toEqual(DEFAULT_SETTINGS)
     expect(normalizeSettings('bypassPermissions')).toEqual(DEFAULT_SETTINGS)
@@ -89,10 +91,14 @@ describe('normalizeSettings', () => {
     expect(normalizeSettings(42)).toEqual(DEFAULT_SETTINGS)
     expect(normalizeSettings({})).toEqual(DEFAULT_SETTINGS)
   })
-  it('drops an unknown mode rather than passing it through to argv', () => {
-    expect(normalizeSettings({ claudePermissionMode: 'yolo' })).toEqual(DEFAULT_SETTINGS)
-    expect(normalizeSettings({ claudePermissionMode: '--exec evil' })).toEqual(DEFAULT_SETTINGS)
-    expect(normalizeSettings({ claudePermissionMode: ['bypassPermissions'] })).toEqual(DEFAULT_SETTINGS)
+  it('fails a present-but-invalid mode SAFE (default), never open — and never to argv', () => {
+    // A stored key that's present but garbage is corruption/tampering: drop to the safe
+    // mode, NOT the bypass-by-default fresh-install value. (An ABSENT key = fresh install
+    // → DEFAULT_SETTINGS; that path is covered above.)
+    const safe = { claudePermissionMode: 'default', defaultSessionProfile: { profile: 'standard' } }
+    expect(normalizeSettings({ claudePermissionMode: 'yolo' })).toEqual(safe)
+    expect(normalizeSettings({ claudePermissionMode: '--exec evil' })).toEqual(safe)
+    expect(normalizeSettings({ claudePermissionMode: ['bypassPermissions'] })).toEqual(safe)
   })
   it('keeps a valid mode and strips unknown keys', () => {
     expect(normalizeSettings({ claudePermissionMode: 'bypassPermissions' })).toEqual({
@@ -119,8 +125,39 @@ describe('normalizeSettings', () => {
   })
   it('returns a fresh object — callers must not be able to mutate DEFAULT_SETTINGS', () => {
     const s = normalizeSettings(null)
-    s.claudePermissionMode = 'bypassPermissions'
-    expect(DEFAULT_SETTINGS.claudePermissionMode).toBe('default')
+    s.claudePermissionMode = 'acceptEdits'
+    expect(DEFAULT_SETTINGS.claudePermissionMode).toBe('bypassPermissions')
+  })
+})
+
+describe('resolvePermissionMode', () => {
+  const bypassGlobal: HubSettings = {
+    claudePermissionMode: 'bypassPermissions',
+    defaultSessionProfile: { profile: 'standard' }
+  }
+  const proj = (mode?: unknown): Project =>
+    ({ id: 'p', name: 'p', path: 'C:/p', claudePermissionMode: mode }) as unknown as Project
+
+  it('inherits the global default when the project has no override', () => {
+    expect(resolvePermissionMode(proj(undefined), bypassGlobal)).toBe('bypassPermissions')
+    expect(resolvePermissionMode(undefined, bypassGlobal)).toBe('bypassPermissions')
+  })
+  it('lets a project override the (bypass) default back to a safer mode', () => {
+    expect(resolvePermissionMode(proj('default'), bypassGlobal)).toBe('default')
+    expect(resolvePermissionMode(proj('acceptEdits'), bypassGlobal)).toBe('acceptEdits')
+  })
+  it('a project can also opt INTO bypass when the global is Ask', () => {
+    const askGlobal: HubSettings = {
+      claudePermissionMode: 'default',
+      defaultSessionProfile: { profile: 'standard' }
+    }
+    expect(resolvePermissionMode(proj('bypassPermissions'), askGlobal)).toBe('bypassPermissions')
+    expect(resolvePermissionMode(proj(undefined), askGlobal)).toBe('default')
+  })
+  it('re-validates — a garbage stored override falls through to the global, never to argv', () => {
+    expect(resolvePermissionMode(proj('yolo'), bypassGlobal)).toBe('bypassPermissions')
+    expect(resolvePermissionMode(proj('--exec evil'), bypassGlobal)).toBe('bypassPermissions')
+    expect(resolvePermissionMode(proj(['default']), bypassGlobal)).toBe('bypassPermissions')
   })
 })
 

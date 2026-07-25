@@ -9,7 +9,7 @@ import type {
   ProjectType,
   WorktreeInfo
 } from '@shared/types'
-import { DEFAULT_SETTINGS, resolveSessionConfig } from '@shared/claudeLaunch'
+import { DEFAULT_SETTINGS, resolvePermissionMode, resolveSessionConfig } from '@shared/claudeLaunch'
 import { normPath } from '@shared/sessionLogic'
 import { hub } from '@/lib/api'
 import { sendToClaudeTerminal } from '@/lib/terminalBus'
@@ -231,7 +231,9 @@ export default function App() {
           project: p,
           cwd: opts?.cwd,
           task: opts?.task,
-          mode: live.claudePermissionMode,
+          // Same resolution main runs at spawn (per-project override → global) — a
+          // LABEL for the chip; the renderer never sends it anywhere.
+          mode: resolvePermissionMode(p, live),
           // Same resolution chain main runs at spawn (task → project → global) —
           // a LABEL for the chip; the renderer never sends it anywhere.
           profile: resolveSessionConfig(p, opts?.task, live)

@@ -291,9 +291,10 @@ function PermissionMode({
     <section>
       <h2 className="mb-2 text-sm font-medium uppercase tracking-wide text-slate-500">Claude sessions</h2>
       <div className="rounded-xl border border-white/5 bg-white/[0.02] p-4">
-        <div className="mb-1 text-sm font-medium text-white">Permission mode</div>
+        <div className="mb-1 text-sm font-medium text-white">Default permission mode</div>
         <p className="mb-3 text-xs text-slate-500">
-          How much an embedded Claude session may do before it stops to ask you.
+          How much an embedded Claude session may do before it stops to ask you. This is the default every
+          project inherits — override it per project in its detail panel.
         </p>
 
         <div className="flex flex-wrap gap-1.5">

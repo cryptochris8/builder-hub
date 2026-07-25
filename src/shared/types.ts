@@ -86,6 +86,10 @@ export interface Project {
   // --- Claude session routing (model + effort) — optional, no migration needed ---
   /** how Claude launches for this project; absent = the global default */
   sessionProfile?: SessionConfig
+  /** per-project permission mode override; absent = inherit settings.claudePermissionMode.
+   *  Lets a project opt out of the (bypass-by-default) global. Re-validated at launch by
+   *  resolvePermissionMode — a garbage value stored here can never reach argv. */
+  claudePermissionMode?: ClaudePermissionMode
   /** per-task overrides for worktree sessions, keyed by task name. Kept when a
    *  task is removed so re-creating the same task keeps its profile. */
   taskProfiles?: Record<string, SessionConfig>

@@ -46,7 +46,7 @@ JSON store; first-run **auto-seed** of ~33 real projects (existing dirs only) fr
 
 ### ✅ Phase 5 — Polish, tests & package (core done)
 - ✅ **Connections panel** (Settings→Connections): originally a read-only list of MCP servers from `~/.claude.json` + each project's `.mcp.json`. **Superseded by Tier 3 below** — it's a full MCP manager now.
-- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`, `claudeLaunch`. **167 tests green** (`npm test`).
+- ✅ **Vitest harness**: pure logic lives in `src/shared/*` (no electron/fs imports) so it's unit-testable — `projectLogic`, `hubLogic`, `sessionLogic`, `mcpLogic`, `scoring`, `handoff`, `claudeLaunch`. **172 tests green** (`npm test`).
 - ✅ **ESLint (flat config) + Prettier**: `npm run lint` / `npm run format`. The React-Compiler rules from react-hooks v7 and `no-unescaped-entities` are disabled deliberately.
 - ✅ **Packaged**: `electron-builder` → NSIS installer `dist/builder-hub-<version>-setup.exe` (~82 MB; version follows package.json). `node-pty` asar-unpacked so the embedded terminal works installed; Desktop + Start-menu shortcuts; `npmRebuild: false` (uses the prebuilt fork). Run `npm run build:win`.
 - ✅ Custom app icon (`build/icon.ico`, generated from `build/icon.png` via `build/build-icon.cjs`).
@@ -88,6 +88,8 @@ Embedded sessions can now launch with permission checks relaxed or fully bypasse
 3. **Security:** the renderer picks a mode *string*; **main** turns it into flags. `normalizeSettings()` validates on every read and every write, so an unknown value can never reach argv. `PtyCreateOptions` deliberately has **no** mode/argv field.
 4. **UI:** Connections → "Claude sessions" segmented control (amber for Bypass + a warning); Workspace Claude tabs opened in bypass carry a `⚠ bypass` chip. The mode applies at launch — running sessions keep the mode they started with.
 
+**Update (2026-07-24) — bypass-by-default + per-project override.** The out-of-box default is now `bypassPermissions` (`DEFAULT_SETTINGS`): this is a personal single-user cockpit run unguarded by default. A project can opt out (or in) via `Project.claudePermissionMode` (absent = inherit the global) — a per-project picker in ProjectDetail, resolved in main by `resolvePermissionMode(project, settings)` (override → global), re-validated at launch exactly like `resolveSessionConfig`, and part of `EDITABLE_FIELDS` (null clears → inherit). **The bypass default is reached only for an ABSENT mode key** (fresh install); a *present-but-invalid* value still fails safe to `default` (`SAFE_MODE_FALLBACK`), so corruption can't silently arm bypass. Trap 1 (a lost downgrade must not read as saved) is unchanged and still load-bearing.
+
 **Trap 1 — a lost save must not read as success.** `settings.json` is what gates `--dangerously-skip-permissions`, so `setSettings()` returns `SettingsSaveResult { ok, settings }`: the mode always applies in-memory, but `ok: false` means it never reached disk. Without that split, a Bypass→Ask downgrade whose write failed (AV lock, read-only, full disk) would toast "saved" and then come back up **in bypass** on the next launch. Don't collapse it back to a bare `HubSettings`.
 
 **Trap 2 — the first bypass session shows a disclaimer, not a session.** claude gates bypass behind a one-time "WARNING: Claude Code running in Bypass Permissions mode" confirm (default: *No, exit*), then records `skipDangerousModePermissionPrompt` in `~/.claude/settings.json`. Chris's machine already has that flag, which is why bypass starts clean here — a fresh profile will sit on the prompt until it's answered. The Hub **does not** write that flag for the user; accepting "disable every safety check" is theirs to do, once, in the terminal.
@@ -114,7 +116,7 @@ The **code** fixes have shipped in those repos: `The-Classified-Files/config.js`
 npm install        # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
 npm run dev        # opens the Builder Hub window
 npm run typecheck
-npm test           # Vitest — 167 tests
+npm test           # Vitest — 172 tests
 npm run lint       # ESLint
 npm run build:win  # NSIS installer → dist/
 ```

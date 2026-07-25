@@ -6,7 +6,7 @@ import { randomUUID } from 'crypto'
 import { allProjects, persist } from './db'
 import { getSettings } from './settings'
 import { SEED_PROJECTS } from './seed-projects'
-import { claudeArgs, resolveSessionConfig, sessionArgs } from '../shared/claudeLaunch'
+import { claudeArgs, resolvePermissionMode, resolveSessionConfig, sessionArgs } from '../shared/claudeLaunch'
 import { TYPE_META } from '../shared/types'
 import {
   applyProjectPatch,
@@ -403,9 +403,10 @@ function launchClaude(path: string): LaunchResult {
   // (no user input, no spaces), so concatenating them into the command line is safe —
   // the PATH still gets quote().
   const settings = getSettings()
+  const project = getByPath(path) ?? undefined
   const flags = [
-    ...claudeArgs(settings.claudePermissionMode),
-    ...sessionArgs(resolveSessionConfig(getByPath(path) ?? undefined, undefined, settings))
+    ...claudeArgs(resolvePermissionMode(project, settings)),
+    ...sessionArgs(resolveSessionConfig(project, undefined, settings))
   ].join(' ')
   const claudeCmd = flags ? `claude ${flags}` : 'claude'
   const cmd = hasWindowsTerminal()

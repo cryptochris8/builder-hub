@@ -7,7 +7,7 @@ import { randomUUID } from 'crypto'
 import { allProjects } from './db'
 import { registryFilePath } from './hubContext'
 import { getSettings } from './settings'
-import { claudeShellArgs, resolveSessionConfig } from '../shared/claudeLaunch'
+import { claudeShellArgs, resolvePermissionMode, resolveSessionConfig } from '../shared/claudeLaunch'
 import { HUB_HOOK_PORT, normPath, resolveSessionProject } from '../shared/sessionLogic'
 import type { PtyCreateOptions } from '../shared/types'
 
@@ -101,11 +101,12 @@ export function registerPtyIpc(): void {
     // it exits. The permission mode AND the session profile (model/effort) are
     // resolved HERE, in main — the renderer only says "run Claude", never what flags
     // to pass (see claudeLaunch). Profile chain: task override → project → global.
+    // Permission mode: per-project override → global default.
     const settings = getSettings()
     const { project, task } = resolveSessionProject(opts.cwd, allProjects())
     const args = claudeShellArgs(process.platform, {
       runClaude: opts.runClaude,
-      mode: settings.claudePermissionMode,
+      mode: resolvePermissionMode(project, settings),
       session: resolveSessionConfig(project, task, settings)
     })
 
