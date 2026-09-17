@@ -59,6 +59,8 @@ export const SWITCHING_LIMITS = {
   valueLow: 20,
   valueModerate: 40,
   valueHigh: 65,
+  /** with high / very-high context, fewer ledger turns than this is too little history to judge value */
+  minHistoryTurns: 5,
   /** risk score boundaries: < moderate → low, < high → moderate, else high */
   riskModerate: 0.1,
   riskHigh: 0.3,
@@ -82,7 +84,11 @@ export const SWITCHING_WEIGHTS = {
     ContextSizeClass,
     number
   >,
-  value: { low: 0.1, moderate: 0.45, high: 0.75, critical: 1 } as Record<ContextValueClass, number>,
+  /** unknown scores as critical: the displayed risk score assumes the worst */
+  value: { low: 0.1, moderate: 0.45, high: 0.75, critical: 1, unknown: 1 } as Record<
+    ContextValueClass,
+    number
+  >,
   continuity: { 'very-low': 0.1, low: 0.3, moderate: 0.6, high: 1 } as Record<ContinuityClass, number>,
   /** 1 − capture adequacy */
   captureGap: { poor: 1, partial: 0.7, good: 0.35, excellent: 0.05 } as Record<CaptureClass, number>
@@ -649,6 +655,18 @@ export function assessSwitching(input: SwitchingInput): SwitchingAssessment {
       : detected
   const continuity = assessContinuity(cInput, boundary)
   const capture = assessCapture({ ledger, objective: r.objective, testStatus: r.testStatus })
+  // Safety rule: a big context the ledger has barely observed (a session that
+  // predates the ledger, or telemetry that started late) can't be judged — a
+  // low score there means "no evidence", not "no value". Hold rather than guess.
+  const insufficientHistory =
+    (size.size === 'high' || size.size === 'very-high') && ledger.turns < SWITCHING_LIMITS.minHistoryTurns
+  if (insufficientHistory) {
+    value.value = 'unknown'
+    value.reasons = [
+      `insufficient context history (${ledger.turns} observed turn(s)) to judge the value of a ${size.size} context`,
+      ...value.reasons
+    ]
+  }
 
   const W = SWITCHING_WEIGHTS
   const riskScore =
@@ -659,8 +677,9 @@ export function assessSwitching(input: SwitchingInput): SwitchingAssessment {
         W.captureGap[capture.capture] *
         100
     ) / 100
-  const risk: SwitchingRisk =
-    riskScore >= SWITCHING_LIMITS.riskHigh
+  const risk: SwitchingRisk = insufficientHistory
+    ? 'unknown'
+    : riskScore >= SWITCHING_LIMITS.riskHigh
       ? 'high'
       : riskScore >= SWITCHING_LIMITS.riskModerate
         ? 'moderate'
@@ -684,14 +703,19 @@ export function assessSwitching(input: SwitchingInput): SwitchingAssessment {
     risk,
     riskScore,
     boundary: boundary.strength,
-    confident: continuity.confident && size.source !== 'unknown',
+    confident: continuity.confident && size.source !== 'unknown' && !insufficientHistory,
     reasons: [sizeReason, ...value.reasons.slice(0, 3), ...continuity.reasons, ...capture.reasons]
   }
 }
 
 // ---------- policy ----------
 
-const RISK_LABEL: Record<SwitchingRisk, string> = { low: 'low', moderate: 'moderate', high: 'high' }
+const RISK_LABEL: Record<SwitchingRisk, string> = {
+  low: 'low',
+  moderate: 'moderate',
+  high: 'high',
+  unknown: 'unknown'
+}
 
 /** "value critical · continuity high · capture partial" */
 export function switchingWhy(a: SwitchingAssessment): string {
@@ -704,6 +728,8 @@ export function switchingWhy(a: SwitchingAssessment): string {
  *  - high risk     → hold the current model; the downgrade becomes deferredTarget;
  *                    no auto; offer "Prepare handoff & switch"
  *  - moderate risk → suggestion stays; no auto; offer a handoff first
+ *  - unknown risk  → same hold as high: context is high but there is too little
+ *                    history to judge its value, so never downgrade on a guess
  *  - low risk      → normal behavior; auto only when the assessment is confident
  * Escalations and holds pass through untouched (switching cost never blocks
  * moving to a more capable model). Guards that forbid unattended downgrades
@@ -724,8 +750,9 @@ export function applySwitchingPolicy(
   const curEffort: ClaudeEffort | undefined = effortAlias(current.effort)
   const why = switchingWhy(a)
 
-  if (a.risk === 'high') {
+  if (a.risk === 'high' || a.risk === 'unknown') {
     const stay = curModel ?? 'the current model'
+    const unknown = a.risk === 'unknown'
     return {
       ...base,
       tier: tierOf(current) ?? rec.tier,
@@ -736,8 +763,10 @@ export function applySwitchingPolicy(
       direction: 'hold',
       autoAllowed: false,
       offerHandoff: true,
-      reason: `valuable context — finish on ${stay} and reassess at the next task boundary (${why})`,
-      signals: [...rec.signals, `switching risk: ${RISK_LABEL.high}`]
+      reason: unknown
+        ? `insufficient context-history information to judge a ${a.size} context — staying on ${stay}, not downgrading on a guess (${why})`
+        : `valuable context — finish on ${stay} and reassess at the next task boundary (${why})`,
+      signals: [...rec.signals, `switching risk: ${RISK_LABEL[a.risk]}`]
     }
   }
 
@@ -773,7 +802,11 @@ export function describeSwitching(
         : `~${Math.round((a.sizeTokens ?? 0) / 1000)}k tokens · ${a.size} (estimated)`
   const rows = [
     { label: 'Context utilization', value: size },
-    { label: 'Context value', value: `${a.value} (${a.valueScore}/100)` },
+    {
+      label: 'Context value',
+      value:
+        a.value === 'unknown' ? 'unknown (insufficient context history)' : `${a.value} (${a.valueScore}/100)`
+    },
     {
       label: 'Task continuity',
       value: a.continuity + (a.boundary !== 'none' ? ` · ${a.boundary} boundary` : '')

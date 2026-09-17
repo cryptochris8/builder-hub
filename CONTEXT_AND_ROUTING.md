@@ -154,6 +154,7 @@ Publishing a handoff (SessionBar ⇥ Handoff, the Context tab, or **Handoff & sw
 
 Only a real downgrade is affected (`applySwitchingPolicy`):
 - **High** → *hold*. The current model stays; the cheaper target is kept as the deferred target; no auto; the SessionBar shows 🛡 **Stay on <model> — valuable context** with **Stay · Handoff & switch · Reassess · Lock**. Reason: "finish on <model> and reassess at the next task boundary".
+- **Unknown** → the same hold as High. Risk is unknown when context is high or very high but the ledger has observed fewer than `SWITCHING_LIMITS.minHistoryTurns` (5) turns, which is too little history to judge its value (e.g. a session that predates the ledger). Value shows as *unknown (insufficient context history)*, the assessment is not confident, and the Stay row reads "not enough context history to judge this context's value". Unknown size never triggers it.
 - **Moderate** → the suggestion is shown, auto is forbidden, and **Handoff & switch** is offered.
 - **Low** → normal behavior, labeled "low switching risk". Auto may apply it only if the assessment is confident, nothing is failing, and valuable context is not poorly captured.
 

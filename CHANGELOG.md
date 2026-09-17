@@ -24,6 +24,7 @@
 - Handoff & switch and the SessionBar Handoff could publish another tab's session and mark the wrong session captured when two tabs share a project. Both now target the exact session.
 - Stop and SessionStart re-read the session after their awaited reads, so status-line pings, subagent stops and tool events that arrive meanwhile are no longer overwritten.
 - Removing the status line now reports a failed preference save instead of claiming success (it would otherwise reinstall on the next launch).
+- **Safety rule — insufficient context history.** When context is high or very high but the ledger has observed fewer than `minHistoryTurns` (5) turns, context value and switching risk are now **unknown**, not low: a low score there means no evidence, not no value. Unknown risk holds a downgrade like high risk (no auto, Handoff & switch offered), and the SessionBar says the hold is due to insufficient context history. Escalations still pass through. This also covers sessions that began before 0.5.0, but historical reconstruction was deliberately not added.
 
 **Unchanged on purpose**
 - The router's task-requirement logic and its tests (failure / uncertainty escalation, max quality, risk, cross-project, mechanical streak, no-evidence hold), locks, dismissals, manual mode, the SessionBar's existing actions, persistent context and task packets.

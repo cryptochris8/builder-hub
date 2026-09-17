@@ -32,7 +32,8 @@ const FRESH_CLS: Record<string, string> = {
 const RISK_CLS: Record<SwitchingRisk, string> = {
   low: 'bg-emerald-500/15 text-emerald-300',
   moderate: 'bg-amber-500/15 text-amber-300',
-  high: 'bg-rose-500/15 text-rose-300'
+  high: 'bg-rose-500/15 text-rose-300',
+  unknown: 'bg-slate-500/20 text-slate-300'
 }
 
 /** "ctx 91%" (exact), "ctx ~91%" / "ctx ~779k" (estimated), or nothing. */
@@ -244,7 +245,10 @@ export function SessionBar({
           <span className="flex flex-wrap items-center gap-1.5 rounded bg-rose-500/10 px-2 py-0.5 text-rose-100">
             <span title={rec.signals.join(' · ')}>
               🛡 Stay on {model ?? 'the current model'}
-              {deferred ? ` (task alone: ${deferred.model} / ${deferred.effort})` : ''} — valuable context
+              {deferred ? ` (task alone: ${deferred.model} / ${deferred.effort})` : ''} —{' '}
+              {sw?.risk === 'unknown'
+                ? 'not enough context history to judge this context’s value'
+                : 'valuable context'}
             </span>
             {riskChip}
             <button

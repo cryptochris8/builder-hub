@@ -752,10 +752,12 @@ export interface CapabilityMatch {
 // answer "what would switching lose right now?" — see src/shared/switchingCost.ts.
 
 export type ContextSizeClass = 'low' | 'moderate' | 'high' | 'very-high' | 'unknown'
-export type ContextValueClass = 'low' | 'moderate' | 'high' | 'critical'
+/** `unknown`: context is high but the ledger holds too little history to judge its value */
+export type ContextValueClass = 'low' | 'moderate' | 'high' | 'critical' | 'unknown'
 export type ContinuityClass = 'very-low' | 'low' | 'moderate' | 'high'
 export type CaptureClass = 'poor' | 'partial' | 'good' | 'excellent'
-export type SwitchingRisk = 'low' | 'moderate' | 'high'
+/** `unknown` follows an unknown context value — treated like high (hold, never auto-downgrade) */
+export type SwitchingRisk = 'low' | 'moderate' | 'high' | 'unknown'
 export type BoundaryStrength = 'none' | 'weak' | 'strong'
 
 /** Where the context-size number came from. `statusline` is Claude Code's own

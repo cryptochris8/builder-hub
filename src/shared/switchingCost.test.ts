@@ -576,7 +576,11 @@ describe('policy guards', () => {
       now: NOW
     })
     const a = assessSwitching({
-      record: valuableRecord({ ledger: emptyLedger(), filesEdited: {} }),
+      // enough observed turns that the value is judged low, not unknown
+      record: valuableRecord({
+        ledger: ledger({ turns: SWITCHING_LIMITS.minHistoryTurns }),
+        filesEdited: {}
+      }),
       prompt: 'fix the typo in the pricing page heading',
       projects: PROJECTS,
       now: NOW
@@ -608,6 +612,96 @@ describe('policy guards', () => {
     expect(out.changes).toBe(false)
     expect(out.heldForContext).toBe(true)
     expect(out.reason).toMatch(/the current model/)
+  })
+})
+
+// ---------------------------------------------------------------------------
+describe('insufficient context history (safety rule)', () => {
+  /** high context, but the ledger has seen almost nothing — its value can't be judged */
+  const thin = (over: Partial<SwitchingInput['record']> = {}): SwitchingInput['record'] =>
+    valuableRecord({
+      recaps: [],
+      filesEdited: {},
+      ledger: ledger({ turns: 1, readOnlyTurns: 1, lastCaptureAt: NOW }),
+      ...over
+    })
+
+  it('pins the history threshold', () => {
+    expect(SWITCHING_LIMITS.minHistoryTurns).toBe(5)
+  })
+
+  it('high context + too little history: value and risk are unknown, the downgrade is held, never auto', () => {
+    const r = route(thin(), 'fix the typo in the pricing page heading')
+    expect(r.switching).toMatchObject({
+      size: 'very-high',
+      value: 'unknown',
+      risk: 'unknown',
+      confident: false
+    })
+    expect(r.switching?.reasons[1]).toMatch(/insufficient context history \(1 observed turn/)
+    expect(r.heldForContext).toBe(true)
+    expect(r.direction).toBe('hold')
+    expect(r.changes).toBe(false)
+    expect(r.target).toEqual({ model: 'fable', effort: 'xhigh' })
+    expect(r.deferredTarget?.model).toBe('haiku')
+    expect(r.autoAllowed).toBe(false)
+    expect(r.offerHandoff).toBe(true)
+    expect(r.reason).toMatch(/insufficient context-history information/)
+    expect(r.signals).toContain('switching risk: unknown')
+    const rows = describeSwitching(r.switching!)
+    expect(rows.find((x) => x.label === 'Context value')?.value).toBe(
+      'unknown (insufficient context history)'
+    )
+    expect(rows.find((x) => x.label === 'Switching risk')?.value).toMatch(/^unknown .*low confidence/)
+  })
+
+  it('a record with no ledger at all at high context is treated the same way', () => {
+    const r = route(
+      thin({ ledger: undefined, contextUsage: exact(70) }),
+      'fix the typo in the pricing page heading'
+    )
+    expect(r.switching).toMatchObject({ size: 'high', value: 'unknown', risk: 'unknown' })
+    expect(r.heldForContext).toBe(true)
+    expect(r.autoAllowed).toBe(false)
+  })
+
+  it('does not apply below high context, or once enough history exists', () => {
+    const small = route(thin({ contextUsage: exact(30) }), 'fix the typo in the pricing page heading')
+    expect(small.switching?.value).not.toBe('unknown')
+    expect(small.switching?.risk).toBe('low')
+    expect(small.changes).toBe(true)
+
+    const observed = route(
+      thin({
+        ledger: ledger({ turns: SWITCHING_LIMITS.minHistoryTurns, readOnlyTurns: 5, lastCaptureAt: NOW })
+      }),
+      'fix the typo in the pricing page heading'
+    )
+    expect(observed.switching?.value).toBe('low')
+    expect(observed.switching?.risk).toBe('low')
+    expect(observed.heldForContext).toBeUndefined()
+    expect(observed.changes).toBe(true)
+  })
+
+  it('unknown size is not "high" — the rule needs a known high context (G stays as it was)', () => {
+    const r = route(thin({ contextUsage: undefined }), 'fix the typo in the pricing page heading')
+    expect(r.switching?.value).not.toBe('unknown')
+    expect(r.switching?.risk).not.toBe('unknown')
+  })
+
+  it('never blocks an escalation', () => {
+    const sonnet = { model: 'claude-sonnet-5', effort: 'medium' }
+    const failing = { ...emptySignals(), consecutiveFailures: 4, failures: 4 }
+    const r = route(
+      thin(),
+      'the router tests keep failing, redesign the policy architecture',
+      sonnet,
+      failing
+    )
+    expect(r.switching?.risk).toBe('unknown')
+    expect(r.direction).toBe('escalate')
+    expect(r.changes).toBe(true)
+    expect(r.heldForContext).toBeUndefined()
   })
 })
 
