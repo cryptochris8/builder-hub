@@ -33,7 +33,8 @@ export const EDITABLE_FIELDS: (keyof Project)[] = [
   // never reach argv.
   'sessionProfile',
   'taskProfiles',
-  'claudePermissionMode'
+  'claudePermissionMode',
+  'routingMode'
 ]
 
 /** Apply an edit to a project, in place. Only whitelisted fields move.

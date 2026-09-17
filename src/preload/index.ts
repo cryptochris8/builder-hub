@@ -1,9 +1,18 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
 import type {
+  CapabilityMatch,
   ClaudeStatusEvent,
+  ContextFreshness,
   CreateProjectOptions,
   CreateProjectResult,
+  CreatorStack,
+  CreatorStackEntry,
+  HandoffPacket,
+  ProjectContext,
+  ProjectContextPatch,
+  SessionRecord,
+  StatusLineInfo,
   GitActionResult,
   GitStatus,
   HandoffInput,
@@ -88,6 +97,8 @@ const api = {
   fs: {
     list: (dir: string): Promise<ListDirResult> => ipcRenderer.invoke('fs:list', dir),
     readText: (file: string): Promise<ReadTextResult> => ipcRenderer.invoke('fs:readText', file),
+    /** true when the path is inside a registered project (Viewer file: URLs) */
+    isAllowed: (p: string): Promise<boolean> => ipcRenderer.invoke('fs:isAllowed', p),
     openExternal: (file: string): Promise<LaunchResult> => ipcRenderer.invoke('fs:openExternal', file),
     showInFolder: (file: string): Promise<LaunchResult> => ipcRenderer.invoke('fs:showInFolder', file)
   },
@@ -129,6 +140,83 @@ const api = {
     /** Generate + save a Claude Code handoff into <project>/handoffs/. */
     save: (projectId: string, input: HandoffInput): Promise<HandoffSaveResult> =>
       ipcRenderer.invoke('handoff:save', projectId, input)
+  },
+  // ---------- 2026-09 upgrade: session board · routing · context · creator stack ----------
+  board: {
+    /** every session the Hub knows about (live + recently ended), newest first */
+    list: (): Promise<SessionRecord[]> => ipcRenderer.invoke('board:list'),
+    onChange: (cb: (rows: SessionRecord[]) => void): (() => void) => {
+      const h = (_e: IpcRendererEvent, rows: SessionRecord[]): void => cb(rows)
+      ipcRenderer.on('hub:board', h)
+      return () => ipcRenderer.removeListener('hub:board', h)
+    },
+    lock: (sessionId: string, locked: boolean): Promise<SessionRecord | null> =>
+      ipcRenderer.invoke('board:lock', sessionId, locked),
+    dismiss: (sessionId: string): Promise<SessionRecord | null> =>
+      ipcRenderer.invoke('board:dismiss', sessionId),
+    recommend: (sessionId: string): Promise<SessionRecord | null> =>
+      ipcRenderer.invoke('board:recommend', sessionId),
+    /** type /model + /effort into the idle embedded session (main gates it) */
+    apply: (sessionId: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('board:apply', sessionId),
+    /** persist the recommendation as the project's / task's session profile */
+    applyAtLaunch: (sessionId: string): Promise<{ ok: boolean; error?: string }> =>
+      ipcRenderer.invoke('board:applyAtLaunch', sessionId),
+    /** v1.1: refresh context size, clear a dismissal and recompute the recommendation */
+    reassess: (sessionId: string): Promise<SessionRecord | null> =>
+      ipcRenderer.invoke('board:reassess', sessionId),
+    /** v1.1: publish a handoff, then switch (typed now when safe, else saved for the next launch) */
+    handoffAndSwitch: (
+      sessionId: string
+    ): Promise<{ ok: boolean; error?: string; path?: string; switched?: 'now' | 'launch' | 'none' }> =>
+      ipcRenderer.invoke('board:handoffAndSwitch', sessionId)
+  },
+  context: {
+    get: (
+      projectId: string
+    ): Promise<{
+      context: ProjectContext | null
+      freshness: ContextFreshness | null
+      filePath: string
+    } | null> => ipcRenderer.invoke('context:get', projectId),
+    update: (projectId: string, patch: ProjectContextPatch): Promise<ProjectContext | null> =>
+      ipcRenderer.invoke('context:update', projectId, patch),
+    /** deterministic rescan of the project folder (zero tokens) */
+    reindex: (
+      projectId: string
+    ): Promise<{ context: ProjectContext; freshness: ContextFreshness; filePath: string } | null> =>
+      ipcRenderer.invoke('context:reindex', projectId),
+    /** re-probe freshness only */
+    refresh: (projectId: string): Promise<ContextFreshness | null> =>
+      ipcRenderer.invoke('context:refresh', projectId),
+    /** main re-probes at every SessionStart (and on Reindex/refresh) — the latest verdict per project */
+    onFreshness: (cb: (p: { projectId: string; freshness: ContextFreshness }) => void): (() => void) => {
+      const h = (_e: IpcRendererEvent, p: { projectId: string; freshness: ContextFreshness }): void => cb(p)
+      ipcRenderer.on('hub:freshness', h)
+      return () => ipcRenderer.removeListener('hub:freshness', h)
+    },
+    packet: (projectId: string): Promise<{ packet: HandoffPacket; markdown: string } | null> =>
+      ipcRenderer.invoke('context:packet', projectId),
+    publishHandoff: (
+      projectId: string,
+      overrides?: Partial<HandoffPacket>,
+      /** the session the handoff is for (a SessionBar knows it); else the project's latest */
+      sessionId?: string
+    ): Promise<HandoffSaveResult> =>
+      ipcRenderer.invoke('context:publishHandoff', projectId, overrides, sessionId)
+  },
+  creatorStack: {
+    list: (): Promise<{ stack: CreatorStack; filePath: string }> => ipcRenderer.invoke('creatorStack:list'),
+    reindex: (): Promise<CreatorStack> => ipcRenderer.invoke('creatorStack:reindex'),
+    upsert: (entry: CreatorStackEntry): Promise<CreatorStack | null> =>
+      ipcRenderer.invoke('creatorStack:upsert', entry),
+    remove: (id: string): Promise<CreatorStack> => ipcRenderer.invoke('creatorStack:remove', id),
+    /** what Claude would be pointed at for this text */
+    find: (query: string): Promise<CapabilityMatch[]> => ipcRenderer.invoke('creatorStack:find', query)
+  },
+  statusLine: {
+    info: (): Promise<StatusLineInfo> => ipcRenderer.invoke('statusline:info'),
+    set: (install: boolean): Promise<StatusLineInfo> => ipcRenderer.invoke('statusline:set', install)
   },
   worktrees: {
     list: (projectPath: string): Promise<WorktreeInfo[]> => ipcRenderer.invoke('worktree:list', projectPath),

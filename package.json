@@ -1,6 +1,6 @@
 {
   "name": "builder-hub",
-  "version": "0.3.1",
+  "version": "0.5.0",
   "description": "Local-first command center to open/create projects and drop into an embedded Claude Code terminal (FounderOS v2)",
   "author": "Chris Campbell (Athlete Domains LLC)",
   "license": "UNLICENSED",

@@ -22,14 +22,19 @@ export function TerminalPane({
   cwd,
   active,
   runClaude = true,
-  onSessionEnd
+  onSessionEnd,
+  onOpenUrl
 }: {
   cwd: string
   active: boolean
   runClaude?: boolean
   /** the session exited or failed to start — App uses this to replace the tab on next open */
   onSessionEnd?: () => void
+  /** a clicked link — App opens it in an embedded Viewer tab (Chrome is the fallback) */
+  onOpenUrl?: (url: string) => void
 }) {
+  const onOpenUrlRef = useRef(onOpenUrl)
+  onOpenUrlRef.current = onOpenUrl
   const hostRef = useRef<HTMLDivElement>(null)
   const idRef = useRef<string | null>(null)
   const termRef = useRef<Terminal | null>(null)
@@ -58,8 +63,13 @@ export function TerminalPane({
     term.unicode.activeVersion = '11'
     // OSC 52 — lets TUIs (claude included) write to the system clipboard.
     term.loadAddon(new ClipboardAddon())
-    // Clickable links, opened in the real browser.
-    term.loadAddon(new WebLinksAddon((_e, uri) => void hub.launch.chrome(uri)))
+    // Clickable links — inside the Hub (Viewer tab) by default, Chrome as the fallback.
+    term.loadAddon(
+      new WebLinksAddon((_e, uri) => {
+        if (onOpenUrlRef.current) onOpenUrlRef.current(uri)
+        else void hub.launch.chrome(uri)
+      })
+    )
     term.open(host)
     termRef.current = term
     fitRef.current = fit

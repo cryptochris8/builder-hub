@@ -189,6 +189,14 @@ export function registerFilesIpc(): void {
   purgePasteDir()
   ipcMain.handle('fs:list', (_e, dir: string) => listDir(dir))
   ipcMain.handle('fs:readText', (_e, file: string) => readText(file))
+  // The Viewer asks before loading a file: URL — same rule as every other file IPC.
+  ipcMain.handle('fs:isAllowed', (_e, p: string): boolean => {
+    try {
+      return typeof p === 'string' && p.length > 0 && isAllowedPath(normalize(p))
+    } catch {
+      return false
+    }
+  })
   ipcMain.handle('fs:openExternal', async (_e, file: string) => {
     const path = normalize(file)
     if (!isAllowedPath(path)) return { ok: false, error: 'Path is outside your projects' }

@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react'
 import type {
   ClaudeStatusEvent,
+  ContextFreshness,
   GitStatus,
   HubSettings,
   LaunchKind,
   Project,
   ProjectPatch,
   ProjectType,
+  SessionRecord,
   WorktreeInfo
 } from '@shared/types'
 import { DEFAULT_SETTINGS, resolvePermissionMode, resolveSessionConfig } from '@shared/claudeLaunch'
@@ -70,10 +72,49 @@ export default function App() {
   // App preferences (currently just the Claude permission mode). Main owns the file
   // and re-validates every write; this is the UI's mirror of it.
   const [settings, setSettings] = useState<HubSettings>(DEFAULT_SETTINGS)
+  // The cross-terminal session board (main owns it; hooks feed it) + per-project
+  // context freshness verdicts, both mirrored here for the SessionBar / Dashboard.
+  const [board, setBoard] = useState<SessionRecord[]>([])
+  const [freshness, setFreshness] = useState<Record<string, ContextFreshness | null>>({})
+  // Recently closed tabs (reopenable) — newest first, capped.
+  const [closedTabs, setClosedTabs] = useState<WorkspaceTab[]>([])
+  const autoSeen = useRef<Record<string, string>>({})
 
   useEffect(() => {
     hub.settings.get().then(setSettings)
   }, [])
+
+  useEffect(() => {
+    hub.board.list().then(setBoard)
+    return hub.board.onChange(setBoard)
+  }, [])
+
+  // Main re-probes freshness at every SessionStart (/clear after edits, a pull
+  // between sessions): keep the SessionBar's verdict in step with what Claude got.
+  useEffect(() => {
+    return hub.context.onFreshness(({ projectId, freshness }) =>
+      setFreshness((prev) => ({ ...prev, [projectId]: freshness }))
+    )
+  }, [])
+
+  // Auto-routing happened in main — say so once per change (calm: one toast, no modal).
+  useEffect(() => {
+    for (const r of board) {
+      if (
+        r.state !== 'ended' &&
+        r.lastAction?.startsWith('auto-routed') &&
+        autoSeen.current[r.sessionId] !== r.lastAction
+      ) {
+        autoSeen.current[r.sessionId] = r.lastAction
+        notify(`${r.projectName ?? 'Session'}: ${r.lastAction}`)
+      }
+    }
+  }, [board])
+
+  const loadFreshness = async (p: Project): Promise<void> => {
+    const res = await hub.context.get(p.id)
+    setFreshness((prev) => ({ ...prev, [p.id]: res?.freshness ?? null }))
+  }
 
   useEffect(() => {
     return hub.claude.onStatus((e) => {
@@ -241,8 +282,107 @@ export default function App() {
       ]
     })
     setView('workspace')
+    void loadFreshness(p)
     await hub.projects.touch(p.id) // mark recently-opened → surfaces in Dashboard "Recent"
     await refresh()
+  }
+
+  // Open (or focus) the Hub's project-context tab (durable state, task packet, handoff).
+  const openContext = (p: Project): void => {
+    const key = `context:${p.id}`
+    setTabs((prev) => {
+      if (prev.some((t) => t.key === key)) {
+        setActiveKey(key)
+        return prev
+      }
+      setActiveKey(key)
+      return [...prev, { key, kind: 'context', project: p }]
+    })
+    setView('workspace')
+    void loadFreshness(p)
+  }
+
+  // ---------- routing + context actions (SessionBar / Dashboard) ----------
+  const applyRec = async (sessionId: string): Promise<void> => {
+    const res = await hub.board.apply(sessionId)
+    notify(res.ok ? 'Typed /model + /effort into the session' : (res.error ?? 'Could not apply'), !res.ok)
+  }
+  const applyAtLaunch = async (sessionId: string): Promise<void> => {
+    const res = await hub.board.applyAtLaunch(sessionId)
+    if (res.ok) {
+      notify('Saved as the session profile for the next launch')
+      await refresh()
+    } else notify(res.error ?? 'Could not save', true)
+  }
+  const lockSession = (sessionId: string, locked: boolean): void => {
+    void hub.board.lock(sessionId, locked)
+  }
+  const dismissRec = (sessionId: string): void => {
+    void hub.board.dismiss(sessionId)
+  }
+  const reassessRec = async (sessionId: string): Promise<void> => {
+    const r = await hub.board.reassess(sessionId)
+    const sw = r?.recommendation?.switching
+    notify(sw ? `Reassessed — switching risk ${sw.risk}` : 'Reassessed')
+  }
+  const handoffAndSwitch = async (sessionId: string): Promise<void> => {
+    const res = await hub.board.handoffAndSwitch(sessionId)
+    if (!res.ok) return notify(res.error ?? 'Could not prepare the handoff', true)
+    const how =
+      res.switched === 'now'
+        ? 'switched this session'
+        : res.switched === 'launch'
+          ? 'the switch applies at the next launch'
+          : 'no switch target'
+    notify(`Handoff saved → ${res.path} · ${how}`)
+    if (res.switched === 'launch') await refresh()
+  }
+  const publishHandoff = async (p: Project, sessionId?: string): Promise<void> => {
+    const res = await hub.context.publishHandoff(p.id, undefined, sessionId)
+    notify(res.ok ? `Handoff saved → ${res.path}` : (res.error ?? 'Could not publish the handoff'), !res.ok)
+  }
+  const reindexProject = async (p: Project): Promise<void> => {
+    const res = await hub.context.reindex(p.id)
+    if (res) {
+      setFreshness((prev) => ({ ...prev, [p.id]: res.freshness }))
+      notify(
+        `Reindexed ${p.name} — ${Object.keys(res.context.commands).length} commands, ${res.context.services.length} services`
+      )
+    } else notify('Could not reindex', true)
+  }
+
+  // Reopen a recently closed tab (a Claude tab spawns a fresh session).
+  const reopenTab = (t: WorkspaceTab): void => {
+    setClosedTabs((prev) => prev.filter((c) => c.key !== t.key))
+    switch (t.kind) {
+      case 'claude': {
+        const cwd = t.cwd
+        const task = t.task
+        if (cwd && task) {
+          void hub.fs.isAllowed(cwd).then((ok) => {
+            if (ok) void openClaude(t.project, { cwd, task })
+            else notify("That task's folder no longer exists", true)
+          })
+        } else {
+          void openClaude(t.project)
+        }
+        break
+      }
+      case 'shell':
+        openShell(t.project)
+        break
+      case 'viewer':
+        openViewer(t.project, t.url)
+        break
+      case 'files':
+        openFiles(t.project)
+        break
+      case 'context':
+        openContext(t.project)
+        break
+      default:
+        break
+    }
   }
 
   // Open (or focus) the diff-review tab for a task worktree.
@@ -265,6 +405,7 @@ export default function App() {
     const gone = normPath(worktreePath)
     clearStatusFor(worktreePath)
     setWorktreesVersion((v) => v + 1)
+    setClosedTabs((prev) => prev.filter((c) => normPath(tabCwd(c)) !== gone))
     setTabs((prev) => {
       const next = prev.filter((t) => normPath(tabCwd(t)) !== gone)
       setActiveKey((cur) =>
@@ -285,10 +426,14 @@ export default function App() {
     }
   }
 
-  // Open an embedded browser tab for a project.
-  const openViewer = (p: Project): void => {
+  // Open an embedded browser tab for a project (optionally at a given URL — links
+  // clicked in a terminal, a local page from the Files pane).
+  const openViewer = (p: Project, url?: string): void => {
     const key = `viewer:${p.id}:${Date.now()}`
-    setTabs((prev) => [...prev, { key, kind: 'viewer', project: p, url: p.url || defaultViewerUrl(p.type) }])
+    setTabs((prev) => [
+      ...prev,
+      { key, kind: 'viewer', project: p, url: url || p.url || defaultViewerUrl(p.type) }
+    ])
     setActiveKey(key)
     setView('workspace')
   }
@@ -339,6 +484,8 @@ export default function App() {
     // Closing a Claude tab kills its PTY — drop its (now stale) status entry.
     const tab = tabs.find((t) => t.key === key)
     if (tab && tab.kind === 'claude') clearStatusFor(tabCwd(tab))
+    if (tab && tab.kind !== 'diff')
+      setClosedTabs((prev) => [tab, ...prev.filter((c) => c.key !== key)].slice(0, 8))
     setTabs((prev) => {
       const next = prev.filter((t) => t.key !== key)
       setActiveKey((cur) => (cur === key ? (next[next.length - 1]?.key ?? null) : cur))
@@ -365,6 +512,7 @@ export default function App() {
     if (kind === 'viewer') return void openViewer(p)
     if (kind === 'files') return void openFiles(p)
     if (kind === 'shell') return void openShell(p)
+    if (kind === 'context') return void openContext(p)
     const labels: Record<LaunchKind, string> = {
       folder: 'Opening folder',
       editor: 'Opening editor',
@@ -374,7 +522,8 @@ export default function App() {
       files: 'Opening files',
       shell: 'Opening shell',
       studio: 'Launching Roblox Studio',
-      play: 'Launching in Roblox'
+      play: 'Launching in Roblox',
+      context: 'Opening context'
     }
     notify(`${labels[kind]} — ${p.name}…`)
     const res =
@@ -468,11 +617,31 @@ export default function App() {
               activeKey={activeKey}
               visible={view === 'workspace'}
               statuses={claudeStatus}
+              board={board}
+              freshness={freshness}
+              settings={settings}
+              projects={projects}
+              closedTabs={closedTabs}
+              onReopen={reopenTab}
+              onFreshness={(id, f) => setFreshness((prev) => ({ ...prev, [id]: f }))}
               onActivate={setActiveKey}
               onClose={closeTab}
               onSendToClaude={sendToClaude}
               onSessionEnd={markTabDead}
               onTaskRemoved={onTaskRemoved}
+              actions={{
+                onApply: (id) => void applyRec(id),
+                onApplyAtLaunch: (id) => void applyAtLaunch(id),
+                onLock: lockSession,
+                onDismiss: dismissRec,
+                onReassess: (id) => void reassessRec(id),
+                onHandoffAndSwitch: (id) => void handoffAndSwitch(id),
+                onOpenContext: openContext,
+                onOpenStack: () => setView('connections'),
+                onPublishHandoff: (p, sid) => void publishHandoff(p, sid),
+                onReindex: (p) => void reindexProject(p),
+                onOpenUrl: (p, url) => openViewer(p, url)
+              }}
               notify={notify}
             />
           </div>
@@ -486,6 +655,7 @@ export default function App() {
                   projects={projects}
                   git={git}
                   statuses={claudeStatus}
+                  board={board}
                   onOpen={setSelected}
                   onLaunch={onLaunch}
                   onFocusSession={focusSession}

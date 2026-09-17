@@ -166,15 +166,34 @@ export function upsertMarkedBlock(doc: string, start: string, end: string, block
 export const HUB_BLOCK_START = '<!-- builder-hub:projects:start -->'
 export const HUB_BLOCK_END = '<!-- builder-hub:projects:end -->'
 
-/** The marked block Builder Hub maintains inside ~/.claude/CLAUDE.md. Pure. */
-export function buildGlobalClaudeBlock(registryPath: string): string {
-  return (
-    `${HUB_BLOCK_START}\n` +
-    `## All my projects — Builder Hub registry (auto-managed block, do not hand-edit)\n` +
-    `- Every project I'm building (name → path · type · stack · status · notes): \`${registryPath}\` — Builder Hub regenerates it whenever the registry changes.\n` +
-    `- When I mention a project by name, resolve it in that file; you may read/reference those folders directly. Hub-embedded terminals also set \`BUILDER_HUB_PROJECTS\` to that path.\n` +
-    `${HUB_BLOCK_END}`
-  )
+/** The marked block Builder Hub maintains inside ~/.claude/CLAUDE.md. Pure.
+ *  `creatorStackPath` / `contextDir` are optional so older callers/tests keep working. */
+export function buildGlobalClaudeBlock(
+  registryPath: string,
+  creatorStackPath?: string,
+  contextDir?: string
+): string {
+  const lines = [
+    HUB_BLOCK_START,
+    '## All my projects — Builder Hub registry (auto-managed block, do not hand-edit)',
+    `- Every project I'm building (name → path · type · stack · status · notes): \`${registryPath}\` — Builder Hub regenerates it whenever the registry changes.`,
+    '- When I mention a project by name, resolve it in that file; you may read/reference those folders directly. Hub-embedded terminals also set `BUILDER_HUB_PROJECTS` to that path.'
+  ]
+  if (creatorStackPath) {
+    lines.push(
+      `- **Creator Stack** — my reusable tools & related projects (Trailer Factory, Video Factory, agent pack, playbooks, profiles), each with the docs to read FIRST: \`${creatorStackPath}\`. **Before building a new tool, look there and reuse the established one.**`
+    )
+  }
+  if (contextDir) {
+    lines.push(
+      `- **Project context** — Builder Hub keeps a durable per-project state (purpose, commands, decisions, recent work, key files) in \`${contextDir}\` (\`<projectId>.md\`); embedded sessions get the compact task packet injected at start. Summaries orient; source files are truth.`
+    )
+    lines.push(
+      "- **Cross-project guardrail:** read/reference any registered project or shared tool freely, but before modifying ANOTHER project's source say so explicitly and prefer consuming shared tools through their documented entrypoints."
+    )
+  }
+  lines.push(HUB_BLOCK_END)
+  return lines.join('\n')
 }
 
 /** The full auto-generated registry file Claude sessions can read. Pure. */

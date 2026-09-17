@@ -18,13 +18,20 @@
 // prompt until someone answers it. The Hub deliberately does NOT write that flag: accepting
 // "turn off every safety check" is the user's call to make, in the terminal, once.
 
-import { CLAUDE_PERMISSION_MODES, CLAUDE_MODELS, CLAUDE_EFFORTS, SESSION_PROFILES } from './types'
+import {
+  CLAUDE_PERMISSION_MODES,
+  CLAUDE_MODELS,
+  CLAUDE_EFFORTS,
+  SESSION_PROFILES,
+  ROUTING_MODES
+} from './types'
 import type {
   ClaudeEffort,
   ClaudeModel,
   ClaudePermissionMode,
   HubSettings,
   Project,
+  RoutingMode,
   SessionConfig,
   SessionProfileId
 } from './types'
@@ -39,8 +46,25 @@ import type {
  *  that's PRESENT but garbage still fails safe to 'default' (see normalizeSettings). */
 export const DEFAULT_SETTINGS: HubSettings = {
   claudePermissionMode: 'bypassPermissions',
-  defaultSessionProfile: { profile: 'standard' }
+  defaultSessionProfile: { profile: 'standard' },
+  // Routing upgrade (2026-09): suggest-only out of the box - the Hub recommends,
+  // the user applies. Context injection + conflict warnings are on (they only
+  // add a few hundred tokens when relevant).
+  routingMode: 'suggest',
+  contextInjection: true,
+  conflictWarnings: true,
+  // v1.1: ON by default. Context-aware switching needs the exact context-window
+  // figure only Claude Code's status line provides, and it must not depend on
+  // the user remembering to install it. Reached only when the key is ABSENT; an
+  // explicit opt-out (false) is kept, and a status line the user wrote themselves
+  // is never replaced (ensureHubStatusLine).
+  statusLineTelemetry: true,
+  // v1.1: subagents running at once before the Hub flags the session (warning only).
+  agentCeiling: 8
 }
+
+/** Allowed range for the agent concurrency ceiling. */
+export const AGENT_CEILING_RANGE = { min: 1, max: 64 } as const
 
 /** Where a corrupt/tampered mode value lands. Deliberately NOT the fresh-install
  *  default: "skip every safety check" must never be reached by *failing open* — only
@@ -65,6 +89,26 @@ export const PERMISSION_MODE_META: Record<
     blurb:
       'Skips every permission check (--dangerously-skip-permissions). Claude can edit and run anything without asking.',
     danger: true
+  }
+}
+
+export const ROUTING_MODE_META: Record<RoutingMode, { label: string; blurb: string }> = {
+  manual: {
+    label: 'Manual',
+    blurb: 'Never recommend or change a model — you pick everything yourself.'
+  },
+  suggest: {
+    label: 'Suggest',
+    blurb: 'The Hub recommends a model / effort per task and session; you apply it (default).'
+  },
+  auto: {
+    label: 'Auto',
+    blurb:
+      'Confident recommendations are applied to an IDLE embedded session by typing /model and /effort for you. Never mid-turn, never on locked or external sessions.'
+  },
+  lock: {
+    label: 'Lock',
+    blurb: 'Pin the launched model / effort — no recommendations at all.'
   }
 }
 
@@ -178,7 +222,15 @@ export function normalizeSettings(raw: unknown): HubSettings {
   const o =
     !raw || typeof raw !== 'object' || Array.isArray(raw)
       ? {}
-      : (raw as { claudePermissionMode?: unknown; defaultSessionProfile?: unknown })
+      : (raw as {
+          claudePermissionMode?: unknown
+          defaultSessionProfile?: unknown
+          routingMode?: unknown
+          contextInjection?: unknown
+          conflictWarnings?: unknown
+          statusLineTelemetry?: unknown
+          agentCeiling?: unknown
+        })
   // Every field rebuilt fresh — never return (or nest) DEFAULT_SETTINGS itself.
   return {
     // Absent key = fresh install → the (bypass) default. Present but invalid = corruption
@@ -190,8 +242,33 @@ export function normalizeSettings(raw: unknown): HubSettings {
       : o.claudePermissionMode === undefined
         ? DEFAULT_SETTINGS.claudePermissionMode
         : SAFE_MODE_FALLBACK,
-    defaultSessionProfile: normalizeSessionConfig(o.defaultSessionProfile) ?? { profile: 'standard' }
+    defaultSessionProfile: normalizeSessionConfig(o.defaultSessionProfile) ?? { profile: 'standard' },
+    // Routing upgrade fields: unknown/absent -> the (conservative) defaults. 'auto' is the
+    // only mode that acts on its own, and it is never reached by failing open.
+    routingMode: isRoutingMode(o.routingMode) ? o.routingMode : DEFAULT_SETTINGS.routingMode,
+    contextInjection: asBool(o.contextInjection, DEFAULT_SETTINGS.contextInjection),
+    conflictWarnings: asBool(o.conflictWarnings, DEFAULT_SETTINGS.conflictWarnings),
+    statusLineTelemetry: asBool(o.statusLineTelemetry, DEFAULT_SETTINGS.statusLineTelemetry),
+    agentCeiling:
+      typeof o.agentCeiling === 'number' && Number.isFinite(o.agentCeiling)
+        ? Math.min(AGENT_CEILING_RANGE.max, Math.max(AGENT_CEILING_RANGE.min, Math.round(o.agentCeiling)))
+        : DEFAULT_SETTINGS.agentCeiling
   }
+}
+
+function asBool(v: unknown, fallback: boolean): boolean {
+  return typeof v === 'boolean' ? v : fallback
+}
+
+export function isRoutingMode(v: unknown): v is RoutingMode {
+  return typeof v === 'string' && (ROUTING_MODES as readonly string[]).includes(v)
+}
+
+/** Which routing mode governs a session: per-project override -> global. A garbage
+ *  stored value falls through (same pattern as resolvePermissionMode). */
+export function resolveRoutingMode(project: Project | undefined, settings: HubSettings): RoutingMode {
+  if (project && isRoutingMode(project.routingMode)) return project.routingMode
+  return isRoutingMode(settings.routingMode) ? settings.routingMode : DEFAULT_SETTINGS.routingMode
 }
 
 /** Which permission mode governs a launch: per-project override → global default.
@@ -225,8 +302,23 @@ export function claudeArgs(mode: ClaudePermissionMode): string[] {
  *  shell (today's behavior) — no auto-launch, so nothing to flag. */
 export function claudeShellArgs(
   platform: string,
-  opts: { runClaude?: boolean; mode?: ClaudePermissionMode; session?: SessionConfig }
+  opts: { runClaude?: boolean; mode?: ClaudePermissionMode; session?: SessionConfig; sessionId?: string }
 ): string[] {
   if (platform !== 'win32' || !opts.runClaude) return []
-  return ['/k', 'claude', ...claudeArgs(opts.mode ?? 'default'), ...sessionArgs(opts.session)]
+  return [
+    '/k',
+    'claude',
+    ...claudeArgs(opts.mode ?? 'default'),
+    ...sessionArgs(opts.session),
+    ...sessionIdArgs(opts.sessionId)
+  ]
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** `--session-id <uuid>` (a documented flag) lets main know which Claude session a
+ *  PTY runs, so the board's `embedded` flag and Apply/Auto target the right PTY
+ *  instead of guessing by folder. Only a well-formed UUID ever reaches argv. */
+export function sessionIdArgs(sessionId: string | undefined): string[] {
+  return sessionId && UUID_RE.test(sessionId) ? ['--session-id', sessionId.toLowerCase()] : []
 }

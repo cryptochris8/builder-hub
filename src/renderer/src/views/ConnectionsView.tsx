@@ -16,6 +16,8 @@ import { CLAUDE_EFFORTS, CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, SESSION_PROFILE
 import { PERMISSION_MODE_META, PROFILE_META } from '@shared/claudeLaunch'
 import { MCP_CATALOG, catalogInstalled, isClaudeAiConnector } from '@shared/mcpLogic'
 import { hub } from '@/lib/api'
+import { RoutingSettings } from '@/components/RoutingSettings'
+import { CreatorStackPanel } from '@/components/CreatorStackPanel'
 
 const STATUS_PILL: Record<McpStatus, { cls: string; label: string }> = {
   connected: { cls: 'bg-emerald-500/15 text-emerald-300', label: 'connected' },
@@ -117,6 +119,12 @@ export function ConnectionsView({
 
       {/* Default session profile — which model + effort new sessions launch with */}
       <SessionProfileDefault settings={settings} onSettings={onSettings} notify={notify} />
+
+      {/* Router mode, context injection, conflict warnings, status line (2026-09 upgrade) */}
+      <RoutingSettings settings={settings} onSettings={onSettings} notify={notify} />
+
+      {/* Creator Stack — the shared-tools registry Claude is pointed at */}
+      <CreatorStackPanel notify={notify} />
 
       {/* Session status hooks (Tier 2) */}
       <section>

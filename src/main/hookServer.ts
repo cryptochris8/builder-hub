@@ -11,6 +11,7 @@ import {
   stateForHookEvent
 } from '../shared/sessionLogic'
 import type { ClaudeStatusEvent } from '../shared/types'
+import { handleHook, handleStatusLine } from './orchestrator'
 
 // Tier-2 cockpit, part (a): Claude Code hooks → Hub notifications.
 //
@@ -20,11 +21,18 @@ import type { ClaudeStatusEvent } from '../shared/types'
 // the renderer (status dots + rail) and raises a native OS notification when a
 // session needs you and the Hub window isn't focused.
 //
-// The listener replies 204 with an EMPTY body on purpose: curl prints the
+// The listener replies 204 with an EMPTY body by default: curl prints the
 // response body to stdout, and Claude Code interprets hook stdout (a JSON
 // "decision" on Stop could block Claude from stopping). Silence is safety.
+// The orchestrator (2026-09 upgrade) answers a few events ON PURPOSE with hook
+// JSON — SessionStart context, UserPromptSubmit tool cards, PreToolUse conflict
+// warnings — and only ever with additionalContext/systemMessage, never a
+// decision. /statusline (opt-in) answers plain text for Claude's status bar.
 
-const MAX_BODY = 256 * 1024
+// PostToolUse payloads embed tool_response (a Read of a big file, a long Bash
+// stdout); the board only needs their tool_name/tool_input, but the whole body
+// must fit or the event is lost. Loopback-only, so 4 MB is a safe ceiling.
+const MAX_BODY = 4 * 1024 * 1024
 
 let server: Server | null = null
 let listenError: string | null = null
@@ -88,7 +96,8 @@ export function startHookServer(): void {
   server = createServer((req, res) => {
     // Browsers attach an Origin header to cross-origin POSTs; our curl never
     // does. Rejecting it closes the drive-by-web-page spoofing vector.
-    if (req.method !== 'POST' || req.url !== '/hook' || req.headers.origin) {
+    const route = req.url === '/hook' ? 'hook' : req.url === '/statusline' ? 'statusline' : null
+    if (req.method !== 'POST' || !route || req.headers.origin) {
       res.writeHead(req.headers.origin ? 403 : 404)
       res.end()
       return
@@ -108,16 +117,39 @@ export function startHookServer(): void {
       }
       chunks.push(chunk)
     })
-    req.on('end', () => {
+    req.on('end', async () => {
+      let payload: Record<string, unknown> | null = null
       if (!overflow) {
         try {
-          handlePayload(JSON.parse(Buffer.concat(chunks).toString('utf8')) as HookPayload)
+          const parsed: unknown = JSON.parse(Buffer.concat(chunks).toString('utf8'))
+          if (parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+            payload = parsed as Record<string, unknown>
         } catch {
           /* malformed hook payload — ignore */
         }
       }
-      res.writeHead(204) // empty body, always — see header comment
-      res.end()
+      if (route === 'statusline') {
+        const text = payload ? handleStatusLine(payload) : ''
+        res.writeHead(200, { 'Content-Type': 'text/plain; charset=utf-8' })
+        res.end(text)
+        return
+      }
+      let reply: Record<string, unknown> | undefined
+      if (payload) {
+        try {
+          handlePayload(payload as HookPayload) // legacy status board + OS toasts
+        } catch (e) {
+          console.error('[builder-hub] hook status error:', e)
+        }
+        reply = (await handleHook(payload)).response // session board + context/tool/conflict replies (never throws)
+      }
+      if (reply) {
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(reply))
+      } else {
+        res.writeHead(204) // empty body — see header comment
+        res.end()
+      }
     })
     req.on('error', () => {
       /* client vanished — nothing to do */

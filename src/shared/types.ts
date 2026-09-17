@@ -93,6 +93,9 @@ export interface Project {
   /** per-task overrides for worktree sessions, keyed by task name. Kept when a
    *  task is removed so re-creating the same task keeps its profile. */
   taskProfiles?: Record<string, SessionConfig>
+  /** per-project routing mode override; absent = inherit settings.routingMode.
+   *  Re-validated on read (isRoutingMode) like every other stored enum. */
+  routingMode?: RoutingMode
 }
 
 /** A `projects:update` payload. `undefined` (or absent) leaves a field alone;
@@ -148,7 +151,7 @@ export interface RescanResult {
 }
 
 export type LaunchKind =
-  'folder' | 'editor' | 'terminal' | 'claude' | 'viewer' | 'files' | 'shell' | 'studio' | 'play'
+  'folder' | 'editor' | 'terminal' | 'claude' | 'viewer' | 'files' | 'shell' | 'studio' | 'play' | 'context'
 
 // Files pane (in-app file browser + preview)
 export type FileKind = 'image' | 'video' | 'audio' | 'pdf' | 'text' | 'other'
@@ -244,6 +247,16 @@ export interface HubSettings {
   claudePermissionMode: ClaudePermissionMode
   /** session profile used when a project doesn't set its own */
   defaultSessionProfile: SessionConfig
+  /** how router recommendations are treated (manual | suggest | auto | lock) */
+  routingMode: RoutingMode
+  /** inject the project/task handoff packet at SessionStart (startup / clear / compact / resume) */
+  contextInjection: boolean
+  /** warn a session when another terminal edited the same file (PreToolUse additionalContext) */
+  conflictWarnings: boolean
+  /** opt-in: a Hub-owned status line so sessions report model / effort / context / cache */
+  statusLineTelemetry: boolean
+  /** v1.1: subagents running at once in one session before the Hub flags it (warning only) */
+  agentCeiling: number
 }
 
 /** Result of a settings write. `settings` is the EFFECTIVE value — it applies to this
@@ -411,5 +424,433 @@ export interface McpActionResult {
   ok: boolean
   /** stdout/stderr worth showing */
   output?: string
+  error?: string
+}
+
+// =====================================================================
+// Efficiency / context-continuity / routing upgrade (2026-09-16)
+// Everything below is optional on disk (no migration) and validated on read.
+// =====================================================================
+
+// ---------- Routing: model + effort recommendation ----------
+
+/** How the Hub treats router recommendations.
+ *  manual  - never recommend, never change anything.
+ *  suggest - (default) show a recommendation; the user applies it.
+ *  auto    - apply a confident recommendation to an IDLE session by typing the
+ *            documented `/model` + `/effort` slash commands (best supported
+ *            approximation; see CONTEXT_AND_ROUTING.md limitations).
+ *  lock    - pin: never recommend or change (per project/session). */
+export const ROUTING_MODES = ['manual', 'suggest', 'auto', 'lock'] as const
+export type RoutingMode = (typeof ROUTING_MODES)[number]
+
+/** Cost/capability tiers the router reasons in. Each maps to a model+effort
+ *  pair (ROUTER_TIER_TARGETS in router.ts). */
+export const ROUTER_TIERS = ['light', 'standard', 'deep', 'max'] as const
+export type RouterTier = (typeof ROUTER_TIERS)[number]
+
+export interface ModelEffort {
+  model: ClaudeModel
+  effort: ClaudeEffort
+}
+
+/** Session-derived signals the router weighs (all counters, all deterministic -
+ *  fed by hook events, zero tokens spent). */
+export interface RouterSignals {
+  /** consecutive test/build/lint commands that failed (reset on a pass) */
+  consecutiveFailures: number
+  /** total failed test/build/lint commands this session */
+  failures: number
+  /** total passed test/build/lint commands this session */
+  passes: number
+  /** distinct files edited this session */
+  filesEdited: number
+  /** distinct registered projects whose files this session edited (>1 = cross-project) */
+  projectsTouched: number
+  /** consecutive turns that looked mechanical (short prompt, <=2 edits, no failures) */
+  mechanicalStreak: number
+  /** prompts carrying uncertainty/retry language ("still failing", "not sure", "try again") */
+  uncertaintyHits: number
+  /** the user explicitly asked for maximum quality / care */
+  maxQualityRequested: boolean
+  /** prompts carrying risk words (delete, migration, auth, payment, secret, prod) */
+  riskHits: number
+}
+
+export interface RouterRecommendation {
+  tier: RouterTier
+  target: ModelEffort
+  /** one short sentence, shown verbatim: "Suggested: sonnet / low because ..." */
+  reason: string
+  /** 0..1 - auto mode only acts at >= 0.75 */
+  confidence: number
+  /** relative to the session's CURRENT model/effort (when known) */
+  direction: 'escalate' | 'deescalate' | 'hold'
+  /** true when target differs from the current model/effort (false when unknown or equal) */
+  changes: boolean
+  /** human-readable signal labels that drove the decision */
+  signals: string[]
+  at: number
+  /** v1.1: the tier the TASK needs, before the switching-cost policy (for display) */
+  taskTier?: RouterTier
+  /** v1.1: what switching would lose right now (absent when not assessed) */
+  switching?: SwitchingAssessment
+  /** v1.1: a downgrade the task allowed but switching cost held back */
+  heldForContext?: boolean
+  /** v1.1: the downgrade target that was held (what "Prepare handoff & switch" applies) */
+  deferredTarget?: ModelEffort
+  /** v1.1: whether auto mode may apply this recommendation unattended */
+  autoAllowed?: boolean
+  /** v1.1: suggest capturing a handoff before switching */
+  offerHandoff?: boolean
+}
+
+// ---------- Cross-terminal session board ----------
+
+export type CommandKind = 'test' | 'build' | 'lint' | 'typecheck' | 'git' | 'install' | 'other'
+export type CommandOutcome = 'pass' | 'fail' | 'unknown'
+
+export interface CommandRecord {
+  command: string
+  kind: CommandKind
+  outcome: CommandOutcome
+  at: number
+}
+
+/** One live (or recently ended) Claude Code session as the Hub sees it -
+ *  the "shared coordination board" entry. Keyed by Claude's session_id, so two
+ *  sessions in one cwd never clobber each other. Everything here is derived
+ *  from hook payloads, the optional status line, and the registry - never
+ *  from reading another terminal's transcript. */
+export interface SessionRecord {
+  sessionId: string
+  cwd: string
+  projectId?: string
+  projectName?: string
+  task?: string
+  /** 'ended' entries are kept briefly so a handoff can still be published */
+  state: SessionState | 'ended'
+  /** true when this session runs inside a Hub tab (vs. an external terminal) */
+  embedded?: boolean
+  startedAt: number
+  updatedAt: number
+  /** first prompt of the session (trimmed) - the working objective */
+  objective?: string
+  /** most recent prompt (trimmed) */
+  lastPrompt?: string
+  /** canonical model id (from the status line / PostModelSwitch / SessionStart) */
+  model?: string
+  /** effort level (from hook payloads' `effort.level` or the status line) */
+  effort?: string
+  /** normPath(file) -> last edit timestamp */
+  filesEdited: Record<string, number>
+  /** normPath(file) -> last read timestamp (Read tool) */
+  filesRead: Record<string, number>
+  /** bounded, most recent last */
+  commands: CommandRecord[]
+  /** last test/build/lint verdict */
+  testStatus?: CommandRecord
+  /** the final assistant message of the last turn (trimmed) */
+  lastAssistantMessage?: string
+  /** last few turn recaps, most recent last (bounded) */
+  recaps: string[]
+  /** ids of other registered projects whose files this session edited */
+  otherProjectsTouched: string[]
+  /** creator-stack capability ids this session was pointed at */
+  sharedToolsUsed: string[]
+  signals: RouterSignals
+  recommendation?: RouterRecommendation
+  /** user pinned this session's model/effort - no recommendations shown or applied */
+  locked: boolean
+  /** the user dismissed the current recommendation (cleared on the next one) */
+  dismissedAt?: number
+  /** status-line telemetry (only when the opt-in status line is installed) */
+  contextPct?: number
+  cacheWarm?: boolean
+  cacheHitRatio?: number
+  costUsd?: number
+  rateLimit5hPct?: number
+  transcriptPath?: string
+  /** last hook event name seen (debug/UX) */
+  lastEvent?: string
+  /** most recent notable action, one line ("edited src/x.ts", "ran npm test -> fail") */
+  lastAction?: string
+  /** when the current turn's prompt arrived (turn bookkeeping for the router) */
+  lastPromptAt?: number
+  /** distinct files edited since lastPromptAt */
+  turnEdits?: number
+  /** failed test/build/lint commands since lastPromptAt */
+  turnFailures?: number
+  /** v1.1: incremental value/capture counters (see ContinuityLedger) */
+  ledger?: ContinuityLedger
+  /** v1.1: context-window usage with its source (status line exact, transcript estimated) */
+  contextUsage?: ContextUsage
+}
+
+/** A warning that two sessions are working the same file. */
+export interface EditConflict {
+  file: string
+  /** the other session */
+  otherSessionId: string
+  otherLabel: string
+  /** when the other session last touched it */
+  at: number
+  /** 'edited' = the other session edited it; 'stale' = file changed on disk after this session last read it */
+  kind: 'edited' | 'stale'
+}
+
+// ---------- Persistent context: project state + task handoff ----------
+
+/** Cheap freshness fingerprint of a project folder - recomputed at session
+ *  start and on demand so a stale summary can never pass for current source. */
+export interface ContextFingerprint {
+  /** git HEAD sha (short), when a repo */
+  head?: string
+  /** git branch */
+  branch?: string
+  /** count of changed files (git porcelain), when a repo */
+  dirty?: number
+  /** mtime of CLAUDE.md (ms) */
+  claudeMdMtime?: number
+  /** mtime of the manifest (package.json / pubspec.yaml / *.uproject / default.project.json) */
+  manifestMtime?: number
+  computedAt: number
+}
+
+export interface WorkEntry {
+  at: number
+  summary: string
+  sessionId?: string
+}
+
+/** Durable, model-independent project state owned by the Hub (context.json).
+ *  Auto-* fields are refreshed by "Reindex" (deterministic scan, zero tokens);
+ *  the rest is user-edited or accumulated from session recaps. Rebuildable:
+ *  deleting the file only loses the accumulated notes. */
+export interface ProjectContext {
+  projectId: string
+  /** one-paragraph purpose (README first paragraph, or user-edited) */
+  purpose?: string
+  /** free-form architecture notes (user-edited) */
+  architecture?: string
+  /** script name -> command (auto: package.json scripts, pubspec, rojo, etc.) */
+  commands: Record<string, string>
+  /** notable dependencies / services (auto: package deps of note + env var NAMES from .env.example) */
+  services: string[]
+  /** creator-stack entry/capability ids this project uses */
+  sharedTools: string[]
+  decisions: string[]
+  currentTasks: string[]
+  knownBugs: string[]
+  /** last few session recaps (auto, bounded) */
+  recentWork: WorkEntry[]
+  /** files edited most often across sessions (auto, bounded) */
+  keyFiles: string[]
+  fingerprint?: ContextFingerprint
+  /** last deterministic reindex */
+  indexedAt?: number
+  updatedAt: number
+}
+
+/** A `context:update` payload - same null-clears / undefined-leaves semantics as ProjectPatch. */
+export type ProjectContextPatch = {
+  [K in keyof Omit<ProjectContext, 'projectId'>]?: ProjectContext[K] | null
+}
+
+/** The compact current-task packet handed to the next model / session. */
+export interface HandoffPacket {
+  projectId: string
+  projectName: string
+  sessionId?: string
+  objective: string
+  attempted: string[]
+  filesChanged: string[]
+  decisions: string[]
+  testStatus?: string
+  unresolved: string[]
+  nextAction?: string
+  model?: string
+  effort?: string
+  createdAt: number
+}
+
+export interface ContextFreshness {
+  /** 'fresh' = fingerprint matches; 'stale' = source moved since the context was indexed; 'unknown' = never indexed */
+  status: 'fresh' | 'stale' | 'unknown'
+  reasons: string[]
+  checkedAt: number
+}
+
+// ---------- Creator Stack: shared tools & related projects registry ----------
+
+export const CREATOR_STACK_KINDS = [
+  'shared-tool',
+  'playbook',
+  'agent-pack',
+  'reference',
+  'catalog',
+  'profile'
+] as const
+export type CreatorStackKind = (typeof CREATOR_STACK_KINDS)[number]
+
+export interface CreatorCapability {
+  id: string
+  name: string
+  /** natural-language names Claude/the user might use ("trailer kit", "video creator") */
+  aliases: string[]
+  purpose: string
+  /** relative (to the entry path) or absolute entrypoints - scripts, commands */
+  entrypoints: string[]
+  /** relative or absolute doc paths to read FIRST (minimum needed) */
+  docs: string[]
+  /** safe-usage notes (what to change per project, what NOT to do) */
+  usageNotes?: string
+  /** project types this fits (absent = any) */
+  worksFor?: ProjectType[]
+  tags?: string[]
+}
+
+export interface CreatorStackEntry {
+  id: string
+  name: string
+  aliases: string[]
+  /** absolute path (folder or file) */
+  path: string
+  /** registry project id when the path is (inside) a registered project */
+  projectId?: string
+  kind: CreatorStackKind
+  capabilities: CreatorCapability[]
+  /** top-level docs (relative or absolute) */
+  docs: string[]
+  dependencies?: string[]
+  tags?: string[]
+  /** false when the path no longer exists on disk (kept so the user can fix it) */
+  exists: boolean
+  indexedAt?: number
+  source: 'seed' | 'user' | 'discovered'
+}
+
+export interface CreatorStack {
+  version: 1
+  entries: CreatorStackEntry[]
+  /** seed ids the user removed — Reindex must not re-append them */
+  removed?: string[]
+  updatedAt: number
+}
+
+/** A capability match for a free-text query ("make a trailer with our trailer kit"). */
+export interface CapabilityMatch {
+  entry: CreatorStackEntry
+  capability?: CreatorCapability
+  /** which alias/name matched */
+  matched: string
+  score: number
+}
+
+// ---------- v1.1: context-aware switching cost ----------
+// The router answers "how capable a model does the NEXT task need?". These types
+// answer "what would switching lose right now?" — see src/shared/switchingCost.ts.
+
+export type ContextSizeClass = 'low' | 'moderate' | 'high' | 'very-high' | 'unknown'
+export type ContextValueClass = 'low' | 'moderate' | 'high' | 'critical'
+export type ContinuityClass = 'very-low' | 'low' | 'moderate' | 'high'
+export type CaptureClass = 'poor' | 'partial' | 'good' | 'excellent'
+export type SwitchingRisk = 'low' | 'moderate' | 'high'
+export type BoundaryStrength = 'none' | 'weak' | 'strong'
+
+/** Where the context-size number came from. `statusline` is Claude Code's own
+ *  figure (exact); `transcript` is summed from the last assistant turn's usage
+ *  metadata (estimated); `unknown` means neither was available. */
+export type ContextUsageSource = 'statusline' | 'transcript' | 'unknown'
+
+export interface ContextUsage {
+  /** tokens currently in the context window, when known */
+  tokens?: number
+  /** the model's context window, when known (status line, or inferred safely) */
+  windowSize?: number
+  /** 0-100; exact from the status line, derived only when the window is known */
+  pct?: number
+  source: ContextUsageSource
+  at: number
+}
+
+/** Per-session counters the board reducer accumulates incrementally from hooks —
+ *  the deterministic proxies behind context VALUE and CAPTURE adequacy. No
+ *  transcript content is ever read to build these. */
+export interface ContinuityLedger {
+  /** completed turns (Stop events) */
+  turns: number
+  /** turns that edited at least one file */
+  editTurns: number
+  /** turns that only read/searched (no edits) */
+  readOnlyTurns: number
+  /** Read/Grep/Glob/LS/WebSearch/WebFetch calls this session */
+  searchCalls: number
+  /** search calls in the current turn */
+  turnSearches: number
+  /** passing test/build/lint/typecheck runs that followed an edit */
+  passesAfterEdit: number
+  /** edits since the last passing verdict (feeds passesAfterEdit) */
+  editsSincePass: number
+  /** recaps that recorded a design/implementation decision */
+  decisionHits: number
+  /** recaps that named a bug's root cause */
+  rootCauseHits: number
+  /** recaps that established a constraint or negative finding (valuable research) */
+  constraintHits: number
+  /** prompts that approved an implementation choice ("go ahead", "yes, do it") */
+  approvalHits: number
+  /** PreCompact events — compacted context is already summarized */
+  compactions: number
+  lastEditAt?: number
+  /** last turn that produced edits, decisions, root causes or constraints */
+  lastSubstantiveAt?: number
+  /** last time the Hub persisted this session's state (a Stop recap into project context, a boundary checkpoint) */
+  lastCaptureAt?: number
+  /** last published handoff for this session */
+  lastHandoffAt?: number
+  /** file edits not yet followed by a capture */
+  editsSinceCapture: number
+  /** file edits since the last handoff */
+  editsSinceHandoff: number
+  /** substantive turns since the last handoff (the packet only carries the last few recaps) */
+  substantiveTurnsSinceHandoff: number
+  /** decision / root-cause / constraint recaps since the last handoff or recorded decision */
+  decisionsSinceHandoff: number
+  /** the most recent task boundary detected on a prompt */
+  boundary?: { at: number; strength: Exclude<BoundaryStrength, 'none'>; reason: string }
+  /** subagents currently running / most at once / started this session (SubagentStart/Stop) */
+  agentsActive: number
+  agentsPeak: number
+  agentsTotal: number
+}
+
+export interface SwitchingAssessment {
+  size: ContextSizeClass
+  /** exact = status line; estimated = transcript usage; unknown = no data */
+  sizeSource: 'exact' | 'estimated' | 'unknown'
+  sizePct?: number
+  sizeTokens?: number
+  value: ContextValueClass
+  /** 0-100 deterministic value score */
+  valueScore: number
+  continuity: ContinuityClass
+  capture: CaptureClass
+  risk: SwitchingRisk
+  /** 0-1 normalized product of the four factors */
+  riskScore: number
+  boundary: BoundaryStrength
+  /** false when size is unknown or continuity rests on too little evidence — auto never downgrades then */
+  confident: boolean
+  /** short human-readable evidence, most important first */
+  reasons: string[]
+}
+
+// ---------- Status line telemetry (opt-in) ----------
+export interface StatusLineInfo {
+  /** true when ~/.claude/settings.json has a Hub-owned statusLine */
+  installed: boolean
+  /** true when a NON-Hub status line exists (we never replace it) */
+  foreign: boolean
   error?: string
 }

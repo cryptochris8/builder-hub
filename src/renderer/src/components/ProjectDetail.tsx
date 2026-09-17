@@ -8,6 +8,7 @@ import type {
   ProjectStage,
   ProjectStatus,
   ProjectType,
+  RoutingMode,
   SessionConfig,
   SessionProfileId,
   WorktreeInfo
@@ -18,11 +19,12 @@ import {
   CLAUDE_PERMISSION_MODES,
   PROJECT_STAGES,
   PROJECT_TYPES,
+  ROUTING_MODES,
   SESSION_PROFILES,
   STAGE_LABELS,
   TYPE_META
 } from '@shared/types'
-import { PERMISSION_MODE_META, PROFILE_META, suggestProfile } from '@shared/claudeLaunch'
+import { PERMISSION_MODE_META, PROFILE_META, ROUTING_MODE_META, suggestProfile } from '@shared/claudeLaunch'
 import { calculateFocusScore, calculateHealth } from '@shared/scoring'
 import { sanitizeBranch } from '@shared/sessionLogic'
 import { HandoffModal } from '@/components/HandoffModal'
@@ -50,6 +52,11 @@ const ACTIONS: { kind: LaunchKind; label: string; title?: string }[] = [
   { kind: 'files', label: '🗀 Files', title: 'Browse & preview files in-app' },
   { kind: 'shell', label: '❯ Shell', title: 'Embedded terminal (no Claude)' },
   { kind: 'viewer', label: '🌐 Viewer', title: 'Embedded browser' },
+  {
+    kind: 'context',
+    label: '☰ Context',
+    title: 'Project context, task packet & handoff (Builder Hub state)'
+  },
   { kind: 'editor', label: '⌨ Editor', title: 'Open in Cursor / VS Code' },
   { kind: 'terminal', label: '❯ Terminal ↗', title: 'External Windows Terminal' },
   { kind: 'folder', label: '🗁 Folder', title: 'Open in Explorer' }
@@ -545,6 +552,52 @@ export function ProjectDetail({
               ? PERMISSION_MODE_META[project.claudePermissionMode].blurb
               : 'Uses the global default (Connections). '}
             {' Applies to newly opened sessions for this project.'}
+          </p>
+        </div>
+
+        <div>
+          <div className={label}>Routing — model &amp; effort recommendations</div>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <button
+              onClick={() => {
+                if (project.routingMode) onUpdate(project.id, { routingMode: null })
+              }}
+              title="Use the global routing mode (Connections)"
+              className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                !project.routingMode
+                  ? 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                  : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+              }`}
+            >
+              Global
+            </button>
+            {ROUTING_MODES.map((m) => {
+              const on = project.routingMode === m
+              return (
+                <button
+                  key={m}
+                  onClick={() => {
+                    if (!on) onUpdate(project.id, { routingMode: m as RoutingMode })
+                  }}
+                  title={ROUTING_MODE_META[m].blurb}
+                  className={`rounded-md border px-2.5 py-1 text-xs transition ${
+                    on
+                      ? m === 'auto'
+                        ? 'border-amber-400/60 bg-amber-500/15 text-amber-200'
+                        : 'border-indigo-400/60 bg-indigo-500/20 text-white'
+                      : 'border-white/5 bg-white/5 text-slate-400 hover:bg-white/10 hover:text-slate-200'
+                  }`}
+                >
+                  {ROUTING_MODE_META[m].label}
+                </button>
+              )
+            })}
+          </div>
+          <p className="mt-1 text-[10px] leading-relaxed text-slate-600">
+            {project.routingMode
+              ? ROUTING_MODE_META[project.routingMode].blurb
+              : 'Uses the global routing mode (Connections). '}
+            {' Lock pins this project; Auto applies confident suggestions to idle sessions.'}
           </p>
         </div>
 

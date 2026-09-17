@@ -15,3 +15,19 @@ body {
   font-family:
     ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
 }
+
+/* Rendered Markdown (Files pane) — shared/markdown.ts emits plain semantic HTML. */
+.md-view h1, .md-view h2, .md-view h3, .md-view h4 { color: #fff; font-weight: 600; margin: 1em 0 0.4em; line-height: 1.25; }
+.md-view h1 { font-size: 1.25rem; } .md-view h2 { font-size: 1.1rem; } .md-view h3 { font-size: 1rem; }
+.md-view p { margin: 0.5em 0; }
+.md-view ul, .md-view ol { margin: 0.5em 0 0.5em 1.4em; } .md-view ul { list-style: disc; } .md-view ol { list-style: decimal; }
+.md-view li { margin: 0.15em 0; }
+.md-view code { font-family: ui-monospace, Consolas, monospace; font-size: 0.85em; background: rgba(255,255,255,0.08); padding: 0.1em 0.3em; border-radius: 3px; }
+.md-view pre { background: rgba(0,0,0,0.35); padding: 0.75em; border-radius: 6px; overflow-x: auto; margin: 0.6em 0; }
+.md-view pre code { background: transparent; padding: 0; }
+.md-view blockquote { border-left: 2px solid rgba(255,255,255,0.15); margin: 0.6em 0; padding: 0.1em 0.8em; color: #94a3b8; }
+.md-view a { color: #a5b4fc; text-decoration: underline; }
+.md-view hr { border: 0; border-top: 1px solid rgba(255,255,255,0.1); margin: 1em 0; }
+.md-view table { border-collapse: collapse; margin: 0.6em 0; font-size: 0.85em; }
+.md-view th, .md-view td { border: 1px solid rgba(255,255,255,0.1); padding: 0.25em 0.6em; text-align: left; }
+.md-view th { background: rgba(255,255,255,0.05); color: #e2e8f0; }

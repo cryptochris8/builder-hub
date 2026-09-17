@@ -103,6 +103,16 @@ Route each Claude session to the right model at the right effort, so Max-plan us
 3. **UI:** Connections → default profile picker (with custom model/effort selects); ProjectDetail → per-project picker + per-task Auto picker at task creation + profile tag on task rows; Workspace Claude tabs carry a profile chip (label-only — same caveat as the ⚠ bypass chip).
 4. Removing a task deliberately keeps its `taskProfiles` entry — recreating the same task name keeps its profile.
 
+### ✅ 0.4 — Efficiency, context continuity & intelligent routing (2026-09-16)
+The orchestration layer from `BUILDER_HUB_UPGRADE_SPEC.md`, built as an upgrade of what was already here (audit: `BUILDER_HUB_AUDIT.md`; design: `BUILDER_HUB_ARCHITECTURE.md`; usage + limitations: `CONTEXT_AND_ROUTING.md`; registry: `CREATOR_STACK.md`). Every decision is pure and tested in `src/shared`; main is glue.
+1. **Router** (`router.ts`): prompt classes + session signals → light/standard/deep/max → `{model, effort}` with a reason and a confidence. Modes Manual · **Suggest (default)** · Auto · Lock, global + per-project. Apply = type `/model` + `/effort` into an IDLE embedded PTY (main-gated); At launch = custom session profile.
+2. **Session board** (`sessionBoard.ts`): one record per Claude `session_id` from hook payloads only — files, commands + pass/fail, recaps (`last_assistant_message`), model/effort, cross-project edits, recommendation. `PreToolUse` conflict warnings between terminals.
+3. **Persistent context** (`contextLogic.ts` + `main/contextStore.ts` + `main/projectIndex.ts`): project state in `context.json`, rendered to `~/.claude/builder-hub/context/<id>.md`; deterministic Reindex; git/manifest fingerprint → STALE detection; task packet injected at `SessionStart` (startup/clear/compact/fork) — the model-switch / context-clear continuity the spec asks for.
+4. **Creator Stack** (`creatorStack.ts` + `main/creatorStack.ts`): seeded from tools verified on disk (Income Kit trailer-factory etc.), alias-matched at `UserPromptSubmit` → capability card injected. Rendered to `~/.claude/builder-hub/creator-stack.md`, linked from the global CLAUDE.md block with the cross-project guardrail.
+5. **UI**: SessionBar above every Claude tab, ☰ Context tab, Connections sections (routing, toggles, opt-in status line, Creator Stack), Dashboard rail enrichment, Viewer `file:` pages + Markdown rendering + internal link opening + recently-closed tabs.
+
+**Verified capabilities (claude 2.1.273):** `SessionStart` `source` values, `Stop.last_assistant_message`, `PreToolUse` `additionalContext`, `PostModelSwitch`, status-line JSON; `http` hooks are NOT supported for SessionStart (so curl stays); offline hooks fail non-blocking; hooks run under Git Bash. **Trap:** the Hub was running during the build (`BUILDER_HUB=1`), so main-process changes were verified by tests/typecheck/lint/build, not a live restart — restart the Hub and run through `CONTEXT_AND_ROUTING.md` §5 once.
+
 ### Phase 7 — Security cleanup (code done; **rotation still pending — user action**)
 The **code** fixes have shipped in those repos: `The-Classified-Files/config.js` reads `process.env.STABILITY_API_KEY`, and old founderos's `useAuth.tsx` reads the server-only `GOOGLE_OAUTH_CLIENT_SECRET` (no `NEXT_PUBLIC_*` secret remains). What's left is **provider-side key rotation**: rotate the Stability AI key at platform.stability.ai, and the OAuth client secret in Google Cloud Console.
 
@@ -116,7 +126,7 @@ The **code** fixes have shipped in those repos: `The-Classified-Files/config.js`
 npm install        # one-time (needs NODE_OPTIONS=--use-system-ca for the Electron download)
 npm run dev        # opens the Builder Hub window
 npm run typecheck
-npm test           # Vitest — 172 tests
+npm test           # Vitest — see README for the current count
 npm run lint       # ESLint
 npm run build:win  # NSIS installer → dist/
 ```

@@ -10,11 +10,13 @@ import {
   normalizeSessionConfig,
   normalizeSettings,
   resolvePermissionMode,
+  resolveRoutingMode,
   resolveSessionConfig,
   sessionArgs,
+  sessionIdArgs,
   suggestProfile
 } from './claudeLaunch'
-import { CLAUDE_PERMISSION_MODES, SESSION_PROFILES } from './types'
+import { CLAUDE_PERMISSION_MODES, ROUTING_MODES, SESSION_PROFILES } from './types'
 import type { HubSettings, Project, SessionConfig } from './types'
 
 describe('claudeArgs', () => {
@@ -95,17 +97,23 @@ describe('normalizeSettings', () => {
     // A stored key that's present but garbage is corruption/tampering: drop to the safe
     // mode, NOT the bypass-by-default fresh-install value. (An ABSENT key = fresh install
     // → DEFAULT_SETTINGS; that path is covered above.)
-    const safe = { claudePermissionMode: 'default', defaultSessionProfile: { profile: 'standard' } }
+    const safe = {
+      ...DEFAULT_SETTINGS,
+      claudePermissionMode: 'default',
+      defaultSessionProfile: { profile: 'standard' }
+    }
     expect(normalizeSettings({ claudePermissionMode: 'yolo' })).toEqual(safe)
     expect(normalizeSettings({ claudePermissionMode: '--exec evil' })).toEqual(safe)
     expect(normalizeSettings({ claudePermissionMode: ['bypassPermissions'] })).toEqual(safe)
   })
   it('keeps a valid mode and strips unknown keys', () => {
     expect(normalizeSettings({ claudePermissionMode: 'bypassPermissions' })).toEqual({
+      ...DEFAULT_SETTINGS,
       claudePermissionMode: 'bypassPermissions',
       defaultSessionProfile: { profile: 'standard' }
     })
     expect(normalizeSettings({ claudePermissionMode: 'acceptEdits', extra: 'ignored' })).toEqual({
+      ...DEFAULT_SETTINGS,
       claudePermissionMode: 'acceptEdits',
       defaultSessionProfile: { profile: 'standard' }
     })
@@ -131,10 +139,10 @@ describe('normalizeSettings', () => {
 })
 
 describe('resolvePermissionMode', () => {
-  const bypassGlobal: HubSettings = {
+  const bypassGlobal: HubSettings = normalizeSettings({
     claudePermissionMode: 'bypassPermissions',
     defaultSessionProfile: { profile: 'standard' }
-  }
+  })
   const proj = (mode?: unknown): Project =>
     ({ id: 'p', name: 'p', path: 'C:/p', claudePermissionMode: mode }) as unknown as Project
 
@@ -147,10 +155,10 @@ describe('resolvePermissionMode', () => {
     expect(resolvePermissionMode(proj('acceptEdits'), bypassGlobal)).toBe('acceptEdits')
   })
   it('a project can also opt INTO bypass when the global is Ask', () => {
-    const askGlobal: HubSettings = {
+    const askGlobal: HubSettings = normalizeSettings({
       claudePermissionMode: 'default',
       defaultSessionProfile: { profile: 'standard' }
-    }
+    })
     expect(resolvePermissionMode(proj('bypassPermissions'), askGlobal)).toBe('bypassPermissions')
     expect(resolvePermissionMode(proj(undefined), askGlobal)).toBe('default')
   })
@@ -231,10 +239,10 @@ describe('sessionArgs', () => {
 })
 
 describe('resolveSessionConfig', () => {
-  const settings: HubSettings = {
+  const settings: HubSettings = normalizeSettings({
     claudePermissionMode: 'default',
     defaultSessionProfile: { profile: 'standard' }
-  }
+  })
   const project = {
     sessionProfile: { profile: 'deep' },
     taskProfiles: { 'fix-login': { profile: 'light' }, bad: { profile: 'yolo' } }
@@ -312,5 +320,73 @@ describe('PROFILE_META / PROFILE_PRESETS', () => {
     for (const preset of Object.values(PROFILE_PRESETS)) {
       expect(sessionArgs({ profile: 'custom', ...preset })).toHaveLength(4)
     }
+  })
+})
+
+describe('routing settings (2026-09 upgrade)', () => {
+  it('defaults to suggest-only routing with injection + conflict warnings on and the status line off', () => {
+    const s = normalizeSettings({})
+    expect(s.routingMode).toBe('suggest')
+    expect(s.contextInjection).toBe(true)
+    expect(s.conflictWarnings).toBe(true)
+    expect(s.statusLineTelemetry).toBe(true) // v1.1: on by default (absent key only)
+  })
+  it('keeps every valid routing mode and falls back to suggest for garbage (never auto by accident)', () => {
+    for (const m of ROUTING_MODES) expect(normalizeSettings({ routingMode: m }).routingMode).toBe(m)
+    expect(normalizeSettings({ routingMode: 'yolo' }).routingMode).toBe('suggest')
+    expect(normalizeSettings({ routingMode: 1 }).routingMode).toBe('suggest')
+  })
+  it('only accepts real booleans for the toggles', () => {
+    expect(normalizeSettings({ statusLineTelemetry: true }).statusLineTelemetry).toBe(true)
+    expect(normalizeSettings({ statusLineTelemetry: 'true' }).statusLineTelemetry).toBe(true) // garbage → default
+    expect(normalizeSettings({ contextInjection: false }).contextInjection).toBe(false)
+    expect(normalizeSettings({ conflictWarnings: 0 }).conflictWarnings).toBe(true)
+  })
+  it('resolveRoutingMode: project override -> global, garbage falls through', () => {
+    const s = normalizeSettings({ routingMode: 'auto' })
+    const proj = (routingMode?: unknown): Project =>
+      ({ id: 'p', name: 'p', path: 'C:/p', routingMode }) as unknown as Project
+    expect(resolveRoutingMode(proj('lock'), s)).toBe('lock')
+    expect(resolveRoutingMode(proj(undefined), s)).toBe('auto')
+    expect(resolveRoutingMode(proj('nope'), s)).toBe('auto')
+    expect(resolveRoutingMode(undefined, s)).toBe('auto')
+  })
+})
+
+describe('sessionIdArgs / claudeShellArgs --session-id', () => {
+  it('passes a well-formed UUID and nothing else', () => {
+    expect(sessionIdArgs('6F1C2D3E-4A5B-4C6D-8E9F-0A1B2C3D4E5F')).toEqual([
+      '--session-id',
+      '6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f'
+    ])
+    expect(sessionIdArgs(undefined)).toEqual([])
+    expect(sessionIdArgs('not-a-uuid')).toEqual([])
+    expect(sessionIdArgs('--dangerously-skip-permissions')).toEqual([])
+  })
+  it('claudeShellArgs appends it after the mode/profile flags on Windows only', () => {
+    const id = '6f1c2d3e-4a5b-4c6d-8e9f-0a1b2c3d4e5f'
+    expect(claudeShellArgs('win32', { runClaude: true, mode: 'default', sessionId: id })).toEqual([
+      '/k',
+      'claude',
+      '--session-id',
+      id
+    ])
+    expect(claudeShellArgs('linux', { runClaude: true, sessionId: id })).toEqual([])
+    expect(claudeShellArgs('win32', { runClaude: true, sessionId: 'junk' })).toEqual(['/k', 'claude'])
+  })
+})
+
+describe('v1.1 settings: status line default + agent ceiling', () => {
+  it('an explicit opt-out of the status line is kept; only an absent key defaults on', () => {
+    expect(normalizeSettings({}).statusLineTelemetry).toBe(true)
+    expect(normalizeSettings({ statusLineTelemetry: false }).statusLineTelemetry).toBe(false)
+  })
+  it('agentCeiling defaults to 8 and is clamped to an integer in range', () => {
+    expect(normalizeSettings({}).agentCeiling).toBe(8)
+    expect(normalizeSettings({ agentCeiling: 3.6 }).agentCeiling).toBe(4)
+    expect(normalizeSettings({ agentCeiling: 0 }).agentCeiling).toBe(1)
+    expect(normalizeSettings({ agentCeiling: 999 }).agentCeiling).toBe(64)
+    expect(normalizeSettings({ agentCeiling: 'lots' }).agentCeiling).toBe(8)
+    expect(normalizeSettings({ agentCeiling: Number.NaN }).agentCeiling).toBe(8)
   })
 })

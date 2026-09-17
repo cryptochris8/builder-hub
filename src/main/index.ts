@@ -12,6 +12,9 @@ import { ensureHooksInstalled, registerHookIpc, startHookServer, stopHookServer 
 import { registerWorktreeIpc } from './worktrees'
 import { registerHandoffIpc } from './handoff'
 import { registerSettingsIpc } from './settings'
+import { registerOrchestrator } from './orchestrator'
+import { ensureStatusLineForSettings, registerStatusLineIpc } from './statusLine'
+import { getSettings } from './settings'
 
 // Custom scheme privileges must be declared before the app is ready.
 registerHubfileScheme()
@@ -79,6 +82,32 @@ function createWindow(): void {
 // and only allow web URLs (Viewer) or file: URLs inside registered projects (PDF
 // preview) — so renderer code can't mint a webview that reads arbitrary disk.
 app.on('web-contents-created', (_e, contents) => {
+  // A target=_blank / window.open inside an embedded Viewer must not spawn a bare
+  // BrowserWindow: load it in the same guest (stays inside the Hub) — web URLs only.
+  if (contents.getType() === 'webview') {
+    contents.setWindowOpenHandler(({ url }) => {
+      if (/^https?:\/\//i.test(url)) void contents.loadURL(url)
+      return { action: 'deny' }
+    })
+    // A page inside a project may link to other local files; keep every file:
+    // navigation (main frame, subframes/iframes, redirects) inside registered
+    // projects — the same rule the attach guard and the address bar apply. Web
+    // navigations are untouched.
+    const guardFileNav = (event: { preventDefault: () => void }, url: string): void => {
+      try {
+        const u = new URL(url)
+        if (u.protocol === 'file:' && !isAllowedPath(fileURLToPath(u))) event.preventDefault()
+        else if (!['http:', 'https:', 'file:', 'about:'].includes(u.protocol)) event.preventDefault()
+      } catch {
+        event.preventDefault()
+      }
+    }
+    contents.on('will-navigate', guardFileNav)
+    contents.on('will-redirect', guardFileNav)
+    // will-navigate covers the main frame only; an <iframe src="file:///…"> inside
+    // an in-project page renders inline without it.
+    contents.on('will-frame-navigate', (details) => guardFileNav(details, details.url))
+  }
   contents.on('will-attach-webview', (event, webPreferences, params) => {
     delete webPreferences.preload
     webPreferences.nodeIntegration = false
@@ -119,9 +148,14 @@ app.whenReady().then(() => {
   // Cockpit: Claude Code hooks POST session state to a localhost listener, and
   // the hook commands are (idempotently) wired into ~/.claude/settings.json.
   registerHookIpc()
+  // Orchestration layer: session board, persistent context, creator stack, router.
+  registerOrchestrator()
+  registerStatusLineIpc()
   startHookServer()
   const hookInstall = ensureHooksInstalled()
   if (hookInstall.error) console.error('[builder-hub] hook wiring failed:', hookInstall.error)
+  // v1.1: exact context-window data for switching cost (on by default; see statusLine.ts).
+  ensureStatusLineForSettings(getSettings().statusLineTelemetry)
 
   createWindow()
 

@@ -9,13 +9,33 @@ import { registryFilePath } from './hubContext'
 import { getSettings } from './settings'
 import { claudeShellArgs, resolvePermissionMode, resolveSessionConfig } from '../shared/claudeLaunch'
 import { HUB_HOOK_PORT, normPath, resolveSessionProject } from '../shared/sessionLogic'
+import type { ClaudePtyBinding } from '../shared/sessionLogic'
 import type { PtyCreateOptions } from '../shared/types'
 
 interface Session {
   proc: IPty
   wc: WebContents
   cwd: string
+  /** true for Claude Code sessions (vs. plain shells) */
+  runClaude: boolean
+  /** the Claude session id this PTY was launched with (--session-id), so the
+   *  board can mark it embedded and Apply/Auto can find exactly this PTY; the
+   *  orchestrator re-binds it when the same terminal starts a new session (/clear) */
+  claudeSessionId?: string
+  /** when the PTY was spawned */
+  createdAt: number
+  /** when the user last typed into this PTY (idle gate for routing applies) */
+  lastInputAt: number
 }
+
+/** How long the user must have been silent before the Hub types a slash command
+ *  into an idle Claude session. Guards against appending to a half-typed prompt. */
+const APPLY_IDLE_MS = 2000
+/** Delay before the first typed command — lets the Stop hook's reply flush to
+ *  curl and Claude return to its prompt before any keystroke arrives. */
+const APPLY_LEAD_MS = 400
+/** Delay between the two slash commands so Claude processes them one at a time. */
+const APPLY_GAP_MS = 700
 
 const sessions = new Map<string, Session>()
 
@@ -23,20 +43,49 @@ const sessions = new Map<string, Session>()
 // doesn't pile up handlers.
 const hookedWc = new WeakSet<WebContents>()
 
+export interface PtyExitInfo {
+  cwd: string
+  claudeSessionId?: string
+}
+type ExitListener = (info: PtyExitInfo) => void
+const exitListeners: ExitListener[] = []
+
+/** Subscribe to Claude PTY endings (tab closed, worktree removed, process exit) —
+ *  the orchestrator uses this to end the matching board record. */
+export function onClaudePtyExit(listener: ExitListener): void {
+  exitListeners.push(listener)
+}
+
+function notifyExit(s: Session): void {
+  if (!s.runClaude) return
+  for (const l of exitListeners) {
+    try {
+      l({ cwd: s.cwd, claudeSessionId: s.claudeSessionId })
+    } catch {
+      /* a listener must never break PTY teardown */
+    }
+  }
+}
+
 function defaultShell(): string {
   if (process.platform === 'win32') return process.env.ComSpec || 'cmd.exe'
   return process.env.SHELL || 'bash'
 }
 
+function killSession(id: string, s: Session): void {
+  try {
+    s.proc.kill()
+  } catch {
+    /* already gone */
+  }
+  sessions.delete(id)
+  notifyExit(s)
+}
+
 function killSessionsFor(wc: WebContents): void {
   for (const [id, s] of sessions) {
     if (s.wc !== wc) continue
-    try {
-      s.proc.kill()
-    } catch {
-      /* already gone */
-    }
-    sessions.delete(id)
+    killSession(id, s)
   }
 }
 
@@ -75,15 +124,104 @@ export function killPtysUnder(dir: string): number {
   for (const [id, s] of sessions) {
     const cwd = normPath(s.cwd)
     if (cwd !== root && !cwd.startsWith(root + '\\')) continue
-    try {
-      s.proc.kill()
-    } catch {
-      /* already gone */
-    }
-    sessions.delete(id)
+    killSession(id, s)
     killed++
   }
   return killed
+}
+
+/** normPath(cwd) of every live embedded Claude session — the board's fallback for `embedded`. */
+export function embeddedClaudeCwds(): Set<string> {
+  const out = new Set<string>()
+  for (const s of sessions.values()) if (s.runClaude) out.add(normPath(s.cwd))
+  return out
+}
+
+/** Claude session ids of every live embedded Claude session (launched with --session-id). */
+export function embeddedClaudeSessionIds(): Set<string> {
+  const out = new Set<string>()
+  for (const s of sessions.values()) if (s.runClaude && s.claudeSessionId) out.add(s.claudeSessionId)
+  return out
+}
+
+/** Every live Hub Claude PTY with the session id it is bound to — the
+ *  orchestrator decides from the board which of them are free to adopt a new
+ *  session (see sessionLogic's unclaimedPtyIn). */
+export function claudePtyBindings(): ClaudePtyBinding[] {
+  const out: ClaudePtyBinding[] = []
+  for (const [id, s] of sessions) {
+    if (s.runClaude) out.push({ id, cwd: s.cwd, claudeSessionId: s.claudeSessionId, createdAt: s.createdAt })
+  }
+  return out
+}
+
+/** Bind a Hub Claude PTY to a (new) Claude session id — the same terminal after
+ *  a /clear, or a `claude` that ignored --session-id. Returns false when the PTY
+ *  is gone. */
+export function rebindClaudePty(ptyId: string, claudeSessionId: string): boolean {
+  const s = sessions.get(ptyId)
+  if (!s || !s.runClaude) return false
+  s.claudeSessionId = claudeSessionId
+  return true
+}
+
+/** The one Claude PTY for a board record: by session id first (exact), else by
+ *  cwd when exactly one Hub Claude PTY runs there (a `/clear` gives the same PTY a
+ *  new session id, so the folder fallback keeps Apply working after one). */
+function findClaudePty(target: { sessionId?: string; cwd: string }): Session | undefined {
+  if (target.sessionId) {
+    const byId = [...sessions.values()].find((x) => x.runClaude && x.claudeSessionId === target.sessionId)
+    if (byId) return byId
+  }
+  const key = normPath(target.cwd)
+  const byCwd = [...sessions.values()].filter((x) => x.runClaude && normPath(x.cwd) === key)
+  return byCwd.length === 1 ? byCwd[0] : undefined
+}
+
+/**
+ * Apply a routing recommendation to an embedded Claude session by typing the
+ * documented slash commands (`/model <alias>`, `/effort <level>`) followed by
+ * Enter — exactly what the user would type. This is the best SUPPORTED
+ * approximation of programmatic switching (there is no API to change a running
+ * session's model), so it is gated hard: only a Claude PTY, only when the user
+ * has not typed for APPLY_IDLE_MS, and the caller (orchestrator) only calls it
+ * for sessions whose last hook state is idle. Commands come from
+ * slashCommandsFor() — allowlisted model/effort values, never free text.
+ *
+ * `opts.noInputSince`: refuse if the user typed ANYTHING after that time. Silence
+ * alone is not proof that Claude's input box is empty — a prompt typed during the
+ * turn and left for a few seconds is still sitting there, and Enter would submit
+ * "<draft>/model haiku". The unattended (auto) path passes the timestamp of the
+ * prompt that started the turn, so only a box untouched since then is typed into;
+ * the manual Apply button keeps the looser idle gate (the user is looking at it).
+ */
+export function applyRecommendationToPty(
+  target: { sessionId?: string; cwd: string },
+  commands: string[],
+  opts: { noInputSince?: number } = {}
+): { ok: boolean; error?: string } {
+  const s = findClaudePty(target)
+  if (!s) return { ok: false, error: 'No embedded Claude session for that folder' }
+  if (!commands.every((c) => /^\/(model|effort) [a-z]+$/.test(c))) {
+    return { ok: false, error: 'Refusing non-allowlisted command' }
+  }
+  if (Date.now() - s.lastInputAt < APPLY_IDLE_MS)
+    return { ok: false, error: 'You are typing — try again in a moment' }
+  if (opts.noInputSince !== undefined && s.lastInputAt > opts.noInputSince)
+    return { ok: false, error: 'Something was typed since the last prompt — not touching the input box' }
+  commands.forEach((c, i) => {
+    setTimeout(
+      () => {
+        try {
+          s.proc.write(c + '\r')
+        } catch {
+          /* session died between the check and the write */
+        }
+      },
+      APPLY_LEAD_MS + i * APPLY_GAP_MS
+    )
+  })
+  return { ok: true }
 }
 
 export function registerPtyIpc(): void {
@@ -101,13 +239,16 @@ export function registerPtyIpc(): void {
     // it exits. The permission mode AND the session profile (model/effort) are
     // resolved HERE, in main — the renderer only says "run Claude", never what flags
     // to pass (see claudeLaunch). Profile chain: task override → project → global.
-    // Permission mode: per-project override → global default.
+    // Permission mode: per-project override → global default. The Claude session id
+    // is minted here too (--session-id), so the board knows this PTY's session.
     const settings = getSettings()
     const { project, task } = resolveSessionProject(opts.cwd, allProjects())
+    const claudeSessionId = opts.runClaude ? randomUUID() : undefined
     const args = claudeShellArgs(process.platform, {
       runClaude: opts.runClaude,
       mode: resolvePermissionMode(project, settings),
-      session: resolveSessionConfig(project, task, settings)
+      session: resolveSessionConfig(project, task, settings),
+      sessionId: claudeSessionId
     })
 
     // node-pty strips COLUMNS/LINES on Unix but NOT on Windows; a stale value from the
@@ -130,20 +271,33 @@ export function registerPtyIpc(): void {
       env: env as { [key: string]: string }
     })
 
+    const session: Session = {
+      proc,
+      wc,
+      cwd: opts.cwd,
+      runClaude: !!opts.runClaude,
+      claudeSessionId,
+      createdAt: Date.now(),
+      lastInputAt: 0
+    }
+
     proc.onData((data) => {
       if (!wc.isDestroyed()) wc.send('pty:data', { id, data })
     })
     proc.onExit(({ exitCode }) => {
       if (!wc.isDestroyed()) wc.send('pty:exit', { id, exitCode })
-      sessions.delete(id)
+      if (sessions.delete(id)) notifyExit(session)
     })
 
-    sessions.set(id, { proc, wc, cwd: opts.cwd })
+    sessions.set(id, session)
     return id
   })
 
   ipcMain.on('pty:input', (_e, { id, data }: { id: string; data: string }) => {
-    sessions.get(id)?.proc.write(data)
+    const s = sessions.get(id)
+    if (!s) return
+    s.lastInputAt = Date.now()
+    s.proc.write(data)
   })
 
   ipcMain.on('pty:resize', (_e, { id, cols, rows }: { id: string; cols: number; rows: number }) => {
@@ -155,7 +309,7 @@ export function registerPtyIpc(): void {
   })
 
   ipcMain.on('pty:kill', (_e, id: string) => {
-    sessions.get(id)?.proc.kill()
-    sessions.delete(id)
+    const s = sessions.get(id)
+    if (s) killSession(id, s)
   })
 }

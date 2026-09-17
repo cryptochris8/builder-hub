@@ -2,6 +2,8 @@ import { app } from 'electron'
 import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'fs'
 import { dirname, join } from 'path'
 import { allProjects, onPersist } from './db'
+import { creatorStackFilePath } from './creatorStack'
+import { contextDir } from './contextStore'
 import {
   HUB_BLOCK_END,
   HUB_BLOCK_START,
@@ -54,7 +56,7 @@ export function syncHubContext(): void {
         current,
         HUB_BLOCK_START,
         HUB_BLOCK_END,
-        buildGlobalClaudeBlock(registry)
+        buildGlobalClaudeBlock(registry, creatorStackFilePath(), contextDir())
       )
       if (next !== current) writeAtomic(globalMd, next, true)
     }

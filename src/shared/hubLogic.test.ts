@@ -165,3 +165,20 @@ describe('buildRegistryMarkdown', () => {
     expect(buildRegistryMarkdown([], '2026-07-01')).toContain('_No projects registered yet._')
   })
 })
+
+describe('buildGlobalClaudeBlock — creator stack + context pointers', () => {
+  it('keeps the legacy two-line form without the optional paths', () => {
+    const b = buildGlobalClaudeBlock('C:\\r.md')
+    expect(b.startsWith(HUB_BLOCK_START)).toBe(true)
+    expect(b.endsWith(HUB_BLOCK_END)).toBe(true)
+    expect(b).not.toContain('Creator Stack')
+  })
+  it('mentions the creator stack, the context dir and the cross-project guardrail when given', () => {
+    const b = buildGlobalClaudeBlock('C:\\r.md', 'C:\\cs.md', 'C:\\ctx')
+    expect(b).toContain('C:\\cs.md')
+    expect(b).toContain('C:\\ctx')
+    expect(b).toContain('Cross-project guardrail')
+    expect(b.split('\n')[0]).toBe(HUB_BLOCK_START)
+    expect(b.split('\n').slice(-1)[0]).toBe(HUB_BLOCK_END)
+  })
+})

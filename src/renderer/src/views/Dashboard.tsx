@@ -1,4 +1,6 @@
-import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project } from '@shared/types'
+import type { ClaudeStatusEvent, GitStatus, LaunchKind, Project, SessionRecord } from '@shared/types'
+import { modelAlias } from '@shared/router'
+import { normPath } from '@shared/sessionLogic'
 import { PROJECT_TYPES, TYPE_META } from '@shared/types'
 import { calculateFocusScore, calculateHealth, rankByFocus } from '@shared/scoring'
 import { resolveSessionProject } from '@shared/sessionLogic'
@@ -27,6 +29,7 @@ export function Dashboard({
   projects,
   git,
   statuses,
+  board,
   onOpen,
   onLaunch,
   onFocusSession,
@@ -35,6 +38,8 @@ export function Dashboard({
   projects: Project[]
   git: Record<string, GitStatus>
   statuses: Record<string, ClaudeStatusEvent>
+  /** the cross-terminal board (model / effort / files / suggestion per session) */
+  board: SessionRecord[]
   onOpen: (p: Project) => void
   onLaunch: (kind: LaunchKind, p: Project) => void
   onFocusSession: (cwd: string) => void
@@ -149,6 +154,13 @@ export function Dashboard({
             {sessions.map((s) => {
               const meta = STATE_META[s.state] ?? STATE_META.done
               const { label } = resolveSessionProject(s.cwd, projects)
+              // The rail is keyed by cwd (legacy status events); match the board by
+              // session id when the event carries one, so two sessions in one
+              // folder each show their own model / suggestion.
+              const b =
+                (s.sessionId ? board.find((r) => r.sessionId === s.sessionId) : undefined) ??
+                board.find((r) => r.state !== 'ended' && normPath(r.cwd) === normPath(s.cwd))
+              const rec = b?.recommendation
               return (
                 <div
                   key={s.cwd.toLowerCase()}
@@ -159,6 +171,22 @@ export function Dashboard({
                   <span className={`h-2 w-2 shrink-0 rounded-full ${meta.dot}`} />
                   <span className="min-w-0 truncate text-sm text-slate-200">{label}</span>
                   <span className={`shrink-0 text-xs ${meta.text}`}>{meta.label}</span>
+                  {b?.model && (
+                    <span className="shrink-0 text-[11px] text-slate-500" title={b.model}>
+                      {modelAlias(b.model) ?? b.model}
+                      {b.effort ? `/${b.effort}` : ''}
+                    </span>
+                  )}
+                  {b?.lastAction && !s.message && (
+                    <span className="min-w-0 truncate text-xs text-slate-600" title={b.lastAction}>
+                      {b.lastAction}
+                    </span>
+                  )}
+                  {rec?.changes && b && !b.locked && !b.dismissedAt && (
+                    <span className="shrink-0 text-[11px] text-indigo-300" title={rec.reason}>
+                      💡 {rec.target.model}/{rec.target.effort}
+                    </span>
+                  )}
                   {s.message && s.state === 'waiting' && (
                     <span className="min-w-0 truncate text-xs text-slate-500">{s.message}</span>
                   )}

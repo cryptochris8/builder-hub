@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { FileEntry } from '@shared/types'
 import { prettyBytes } from '@shared/projectLogic'
+import { renderMarkdown } from '@shared/markdown'
 import { hub } from '@/lib/api'
 
 // In-app file browser + preview for one project: images/video/audio render
@@ -10,6 +11,11 @@ import { hub } from '@/lib/api'
 /** Serve a disk path through the main process's guarded hubfile:// protocol. */
 function hubfileUrl(p: string): string {
   return 'hubfile:///' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
+}
+
+/** file:/// URL for the embedded Viewer (main re-checks containment before it loads). */
+function fileUrl(p: string): string {
+  return 'file:///' + p.replace(/\\/g, '/').split('/').map(encodeURIComponent).join('/')
 }
 
 const KIND_ICON: Record<string, string> = {
@@ -30,11 +36,14 @@ const btn =
 export function FilesPane({
   root,
   active,
-  onSendToClaude
+  onSendToClaude,
+  onOpenInViewer
 }: {
   root: string
   active: boolean
   onSendToClaude: (text: string) => void
+  /** open a local page (built index.html, a game preview) in an embedded Viewer tab */
+  onOpenInViewer?: (url: string) => void
 }) {
   const [dirCache, setDirCache] = useState<Record<string, FileEntry[]>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
@@ -195,6 +204,15 @@ export function FilesPane({
               >
                 🗁
               </button>
+              {onOpenInViewer && /\.(html?|svg)$/i.test(selected.name) && (
+                <button
+                  onClick={() => onOpenInViewer(fileUrl(selected.path))}
+                  className={btn}
+                  title="Preview this page in an embedded browser tab"
+                >
+                  Preview ▸
+                </button>
+              )}
             </div>
             <div className="min-h-0 flex-1 overflow-auto">
               <Preview key={selected.path} entry={selected} active={active} />
@@ -236,7 +254,7 @@ function Preview({ entry, active }: { entry: FileEntry; active: boolean }): Reac
     case 'pdf':
       return <PdfPreview path={entry.path} active={active} />
     case 'text':
-      return <TextPreview path={entry.path} />
+      return <TextPreview path={entry.path} name={entry.name} />
     default:
       return (
         <div className="grid h-full place-items-center p-8 text-center text-sm text-slate-500">
@@ -276,8 +294,10 @@ function ImagePreview({ path }: { path: string }): React.JSX.Element {
   )
 }
 
-function TextPreview({ path }: { path: string }): React.JSX.Element {
+function TextPreview({ path, name }: { path: string; name: string }): React.JSX.Element {
   const [state, setState] = useState<{ content?: string; truncated?: boolean; error?: string } | null>(null)
+  const isMarkdown = /\.(md|markdown)$/i.test(name)
+  const [rendered, setRendered] = useState(true)
   useEffect(() => {
     let live = true
     hub.fs.readText(path).then((r) => {
@@ -291,15 +311,39 @@ function TextPreview({ path }: { path: string }): React.JSX.Element {
   if (!state) return <div className="p-4 text-xs text-slate-600">Loading…</div>
   if (state.error) return <div className="p-4 text-xs text-rose-400/80">{state.error}</div>
   return (
-    <div className="h-full">
+    <div className="flex h-full flex-col">
       {state.truncated && (
         <div className="border-b border-amber-400/20 bg-amber-400/5 px-3 py-1 text-[11px] text-amber-300/90">
           Large file — showing the first 512 KB.
         </div>
       )}
-      <pre className="h-full overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed text-slate-300">
-        {state.content}
-      </pre>
+      {isMarkdown && (
+        <div className="flex items-center gap-1 border-b border-white/5 px-2 py-1">
+          <button
+            onClick={() => setRendered(true)}
+            className={`${btn} ${rendered ? '!bg-white/15 !text-white' : ''}`}
+          >
+            Rendered
+          </button>
+          <button
+            onClick={() => setRendered(false)}
+            className={`${btn} ${!rendered ? '!bg-white/15 !text-white' : ''}`}
+          >
+            Source
+          </button>
+        </div>
+      )}
+      {isMarkdown && rendered ? (
+        // renderMarkdown escapes every piece of source text and allowlists link schemes — see shared/markdown.ts.
+        <div
+          className="md-view min-h-0 flex-1 overflow-auto p-4 text-sm leading-relaxed text-slate-300"
+          dangerouslySetInnerHTML={{ __html: renderMarkdown(state.content ?? '') }}
+        />
+      ) : (
+        <pre className="min-h-0 flex-1 overflow-auto whitespace-pre-wrap break-words p-3 font-mono text-xs leading-relaxed text-slate-300">
+          {state.content}
+        </pre>
+      )}
     </div>
   )
 }
