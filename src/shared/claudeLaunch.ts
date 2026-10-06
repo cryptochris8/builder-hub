@@ -5,7 +5,7 @@
 // allowlist rather than from anything the renderer sends. The renderer picks a
 // MODE (one of three strings); it never supplies flags.
 //
-// Verified against claude 2.1.207:
+// Verified against claude 2.1.290:
 //   --dangerously-skip-permissions      bypasses every permission check
 //   --permission-mode <mode>            acceptEdits | auto | bypassPermissions | manual | dontAsk | plan
 //   `--permission-mode bypassPermissions` == `--dangerously-skip-permissions`
