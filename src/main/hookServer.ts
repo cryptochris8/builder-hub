@@ -11,7 +11,7 @@ import {
   stateForHookEvent
 } from '../shared/sessionLogic'
 import type { ClaudeStatusEvent } from '../shared/types'
-import { handleHook, handleStatusLine } from './orchestrator'
+import { handleDecisionRequest, handleHook, handleStatusLine } from './orchestrator'
 
 // Tier-2 cockpit, part (a): Claude Code hooks → Hub notifications.
 //
@@ -96,7 +96,14 @@ export function startHookServer(): void {
   server = createServer((req, res) => {
     // Browsers attach an Origin header to cross-origin POSTs; our curl never
     // does. Rejecting it closes the drive-by-web-page spoofing vector.
-    const route = req.url === '/hook' ? 'hook' : req.url === '/statusline' ? 'statusline' : null
+    const route =
+      req.url === '/hook'
+        ? 'hook'
+        : req.url === '/statusline'
+          ? 'statusline'
+          : req.url === '/decision'
+            ? 'decision'
+            : null
     if (req.method !== 'POST' || !route || req.headers.origin) {
       res.writeHead(req.headers.origin ? 403 : 404)
       res.end()
@@ -127,6 +134,13 @@ export function startHookServer(): void {
         } catch {
           /* malformed hook payload — ignore */
         }
+      }
+      if (route === 'decision') {
+        // The `decide` CLI (not a hook): always answers JSON so the CLI can report.
+        const reply = payload ? await handleDecisionRequest(payload) : { ok: false, message: 'Bad JSON.' }
+        res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify(reply))
+        return
       }
       if (route === 'statusline') {
         const text = payload ? handleStatusLine(payload) : ''

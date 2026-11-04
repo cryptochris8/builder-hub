@@ -1,5 +1,27 @@
 # Changelog
 
+## 0.5.1 — 2026-11-04 · Founder decisions with status and proof
+
+**Why:** decisions were plain strings in the Context tab, and none of the 35 projects had recorded one. Chris asked for decisions that survive compaction and new sessions, with founder approvals told apart from AI suggestions (open-claw, 2026-11-04).
+
+**Added**
+- **`src/shared/decisions.ts`** (pure, 45 tests):
+  - Statuses: proposed, approved, rejected, superseded.
+  - Evidence rule: an approval or rejection from the CLI must quote words that appear in Chris's own prompts or AskUserQuestion answers from the last 48 h. Otherwise it is stored as a proposal.
+  - One active approved decision per topic; replacing one requires `supersedes`.
+  - Secret redaction runs before anything is stored.
+  - jsonl storage, a DECISIONS.md renderer, and a bounded SessionStart block of about 3k chars.
+- **Founder inputs** (`SessionRecord.founderInputs`): the last 20 founder prompts and answers per session, redacted. Each keeps up to 2k chars, head and tail. Machine prompts (cross-session messages, task notifications) are excluded. They expire with the session record.
+- **`src/main/canonStore.ts`** (4 tests against a real temp git repo):
+  - Writes `knowledge/<project>/decisions.jsonl` + `DECISIONS.md` (+ `knowledge/index.json`) in the canon repo (`~/open-claw`, override `BUILDER_HUB_CANON_ROOT`).
+  - Commits only those files by name (`git commit -- <paths>`), so other staged work is never swept in.
+- **`POST /decision`** on the hook server, for the `decide` CLI. The CLI and skill source live in `resources/skills/decide/`; the installed copy is at `~/.claude/skills/decide/`.
+- **SessionStart** now appends the project's decisions: approved ones are binding, rejected approaches stay rejected, plus how to record new ones.
+- **Context tab → Decisions panel:** approve or reject proposals with a click (the click is the evidence), record a decision yourself, and replacing a decision on the same topic supersedes the old one explicitly.
+
+**Changed**
+- The Context tab's free-text "Decisions already made" box is replaced by the Decisions panel. The legacy `ProjectContext.decisions` field is kept for compatibility; it is unused, and was empty in every project.
+
 ## 0.5.0 — 2026-09-16 · Context-aware routing & switching cost (spec v1.1)
 
 **Added**

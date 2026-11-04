@@ -64,7 +64,22 @@ import {
   normalizeLedger
 } from '../shared/switchingCost'
 import { readTranscriptUsage } from './contextUsage'
-import { applyTargetError, normPath, unclaimedPtyCwds, unclaimedPtyIn } from '../shared/sessionLogic'
+import { canonPaths, freshDecisionId, loadDecisions, readVision, saveDecisions } from './canonStore'
+import {
+  applyDecisionRequest,
+  buildDecisionContext,
+  founderInputFromHook,
+  isFounderInput,
+  pushFounderInput
+} from '../shared/decisions'
+import type { Decision, DecisionAction, DecisionRequest, FounderInput } from '../shared/decisions'
+import {
+  applyTargetError,
+  normPath,
+  resolveSessionProject,
+  unclaimedPtyCwds,
+  unclaimedPtyIn
+} from '../shared/sessionLogic'
 import type {
   ContextFreshness,
   CreatorStackEntry,
@@ -439,6 +454,11 @@ async function handleHookInner(input: HookInput): Promise<{ response?: Record<st
   const project = projectById(record.projectId)
   let response: Record<string, unknown> | undefined
 
+  // The founder's own words (prompts, AskUserQuestion answers): the only evidence
+  // that can turn a decision into an approved one.
+  const founder = founderInputFromHook(input, record.sessionId, now)
+  if (founder) record = { ...record, founderInputs: pushFounderInput(record.founderInputs, founder) }
+
   switch (event) {
     case 'SessionStart': {
       if (project) {
@@ -470,8 +490,11 @@ async function handleHookInner(input: HookInput): Promise<{ response?: Record<st
               creatorStack: creatorStackFilePath()
             }
           })
-          if (text.trim()) {
-            response = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: text } }
+          // Founder decisions (canon repo): binding approved ones, rejected approaches,
+          // and how to record new ones. Its own budget; never pushes the packet out.
+          const combined = [text.trim(), decisionContextFor(project)].filter(Boolean).join('\n')
+          if (combined) {
+            response = { hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: combined } }
           }
         }
       }
@@ -593,6 +616,128 @@ async function handleHookInner(input: HookInput): Promise<{ response?: Record<st
   setRecord(record)
   if (event === 'Stop') maybeAutoApply(record)
   return response ? { response } : {}
+}
+
+// ---------- founder decisions (canon repo) ----------
+
+/** The command Claude runs to record decisions (the user-level `decide` skill ships it). */
+function decideCommand(): string {
+  const file = join(app.getPath('home'), '.claude', 'skills', 'decide', 'decide.mjs').split('\\').join('/')
+  return `node "${file}"`
+}
+
+/** SessionStart block for a project's decisions. Never throws (a broken canon repo
+ *  must not take the packet down with it). */
+function decisionContextFor(project: Project): string {
+  try {
+    const paths = canonPaths(project)
+    return buildDecisionContext({
+      decisions: loadDecisions(project),
+      vision: readVision(project),
+      cliCommand: decideCommand(),
+      decisionsFile: existsSync(paths.decisionsMd) ? paths.decisionsMd : undefined
+    })
+  } catch (e) {
+    console.error('[builder-hub] decision context error:', e)
+    return ''
+  }
+}
+
+/** Founder inputs from every recent session on this project (the evidence pool). */
+function founderInputsFor(projectId: string): FounderInput[] {
+  const out: FounderInput[] = []
+  for (const r of Object.values(board)) {
+    if (r.projectId !== projectId || !Array.isArray(r.founderInputs)) continue
+    out.push(...r.founderInputs.filter(isFounderInput))
+  }
+  return out
+}
+
+// One read-modify-write at a time, so two decisions recorded together never lose one.
+let decisionLock: Promise<unknown> = Promise.resolve()
+
+function withDecisionLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = decisionLock.then(fn, fn)
+  decisionLock = run.catch(() => undefined)
+  return run
+}
+
+const strField = (v: unknown, max = 2000): string | undefined =>
+  typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : undefined
+const listField = (v: unknown): string[] | undefined =>
+  Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string').slice(0, 30) : undefined
+
+function requestFrom(payload: Record<string, unknown>): DecisionRequest {
+  return {
+    action: String(payload.action ?? '') as DecisionAction,
+    id: strField(payload.id, 40),
+    topic: strField(payload.topic, 200),
+    statement: strField(payload.statement),
+    rationale: strField(payload.rationale),
+    alternatives: listField(payload.alternatives),
+    quote: strField(payload.quote, 600),
+    supersedes: strField(payload.supersedes, 40),
+    affectedFiles: listField(payload.affectedFiles),
+    reviewDate: strField(payload.reviewDate, 10)
+  }
+}
+
+async function actOnDecisions(
+  project: Project,
+  req: DecisionRequest,
+  by: 'cli' | 'hub-ui'
+): Promise<Record<string, unknown>> {
+  return withDecisionLock(async () => {
+    const now = Date.now()
+    const result = applyDecisionRequest(loadDecisions(project), req, {
+      projectId: project.id,
+      now,
+      by,
+      newId: () => freshDecisionId(now),
+      founderInputs: by === 'cli' ? founderInputsFor(project.id) : []
+    })
+    if (!result.ok || !result.decision) {
+      return { ok: false, outcome: result.outcome, message: result.message }
+    }
+    const d = result.decision
+    const saved = await saveDecisions(
+      project,
+      result.decisions,
+      `decision: ${d.id} ${result.outcome} — ${project.name}: ${d.topic}`
+    )
+    if (!saved.ok) return { ok: false, outcome: 'refused', message: `Not saved: ${saved.error}` }
+    return {
+      ok: true,
+      outcome: result.outcome,
+      message: result.message,
+      decision: d,
+      file: saved.paths.decisionsMd,
+      committed: saved.committed,
+      ...(saved.error ? { warning: saved.error } : {})
+    }
+  })
+}
+
+/** POST /decision from the `decide` CLI (Claude). Untrusted local input: validated,
+ *  and an approval only happens when the quote is found in the founder's inputs. */
+export async function handleDecisionRequest(
+  payload: Record<string, unknown>
+): Promise<Record<string, unknown>> {
+  try {
+    const cwd = typeof payload.cwd === 'string' && payload.cwd.length <= CWD_MAX_CHARS ? payload.cwd : ''
+    if (!cwd) return { ok: false, message: 'Missing cwd.' }
+    const { project } = resolveSessionProject(cwd, allProjects())
+    if (!project)
+      return { ok: false, message: `${cwd} is not inside a Builder Hub project; register it first.` }
+    if (payload.action === 'list') {
+      const paths = canonPaths(project)
+      return { ok: true, project: project.name, decisions: loadDecisions(project), file: paths.decisionsMd }
+    }
+    return await actOnDecisions(project, requestFrom(payload), 'cli')
+  } catch (e) {
+    console.error('[builder-hub] decision request error:', e)
+    return { ok: false, message: 'The Hub hit an error recording this decision; nothing was saved.' }
+  }
 }
 
 // ---------- status line (opt-in telemetry) ----------
@@ -957,6 +1102,18 @@ export function registerOrchestrator(): void {
       )
   )
 
+  ipcMain.handle('decisions:list', (_e, projectId: string) => {
+    const project = projectById(String(projectId ?? ''))
+    if (!project) return { decisions: [] as Decision[] }
+    const paths = canonPaths(project)
+    return { decisions: loadDecisions(project), file: paths.decisionsMd, root: paths.root }
+  })
+  ipcMain.handle('decisions:act', async (_e, projectId: string, payload: Record<string, unknown>) => {
+    const project = projectById(String(projectId ?? ''))
+    if (!project || !payload || typeof payload !== 'object') return { ok: false, message: 'Unknown project.' }
+    // The renderer is Chris clicking: that click is the evidence. No quote needed.
+    return actOnDecisions(project, requestFrom(payload), 'hub-ui')
+  })
   ipcMain.handle('creatorStack:list', () => ({ stack: getStack(), filePath: creatorStackFilePath() }))
   ipcMain.handle('creatorStack:reindex', () => reindexStack())
   ipcMain.handle('creatorStack:upsert', (_e, entry: CreatorStackEntry) => {

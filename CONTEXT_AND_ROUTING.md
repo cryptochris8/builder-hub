@@ -186,3 +186,36 @@ What a real governor needs and why it was left out of v1.1:
 2. **Premium versus cheaper workers.** `SubagentStart` carries `agent_type` but not the model. Distinguishing them needs the agent definition's `model` (resolvable for named agent types from `.claude/agents/*.md`) or the model on the subagent transcript's first assistant record (`agent_transcript_path` on `SubagentStop`, i.e. after the fact).
 3. **Projected cost.** Combine model × effort × planned agents × expected turns with the status line's `rate_limits` and `cost` fields into a pre-launch estimate, and route "justified parallelism" through the same explainable score style as switching cost.
 4. **Policy.** Per-project ceilings, a premium-agent sub-ceiling, and an approval card in the SessionBar, with the same never-block-quality rule: a ceiling may ask, not silently refuse.
+
+
+## 9. Founder decisions: canon with status and proof (2026-11-04)
+
+**What:** each project's decisions live in the **canon repo** (`~/open-claw/knowledge/<project>/`), not in `context.json`. `decisions.jsonl` is the source and `DECISIONS.md` is the readable view. Every change is a git commit of just those files. Chris chose one central repo on 2026-11-04 so that project repos stay untouched and the desktop can catch up with a `git pull`.
+
+**Statuses:**
+- `proposed`: anyone may record one; it binds nothing.
+- `approved` / `rejected`: needs evidence.
+- `superseded`: replaced through an explicit `supersedes`.
+
+**Evidence:**
+- **From Claude (`decide` CLI → `POST /decision`):** the quote must appear, word for word after normalization, in a founder prompt or AskUserQuestion answer the Hub received for this project in the last 48 h. These come from `UserPromptSubmit` and from `PostToolUse` on `AskUserQuestion`. If the quote isn't found, the decision is stored as a proposal and the CLI exits 1.
+- **From the Hub UI:** the click itself is the evidence.
+- **Hand-edited files:** an approved line with no evidence is demoted to a proposal on load.
+
+**Conflict guard:** there is one active approved decision per topic. A second one is refused unless it names the first in `supersedes`. Proposals that clash are kept, with a warning.
+
+**Injection:** SessionStart (startup, clear, compact, fork) gets one more block, budgeted separately from the packet at about 3k chars:
+- the first part of `VISION.md`, if any;
+- approved decisions, which are binding;
+- rejected approaches;
+- pending proposals;
+- the one-line `decide` usage.
+
+The newest decisions are kept, and the rest are counted.
+
+**Privacy:** `redactSecrets` runs before founder inputs are stored and before any evidence is written. It covers API keys, tokens, JWTs, private keys, `NAME_KEY=value`, URL passwords and long mixed-case blobs. Founder inputs live on the session record, so they expire with it. Only the quoted words and a ≤400-char excerpt are kept, with the decision.
+
+**Limits:**
+- Evidence can't tell Chris's own words from text he pasted in. A quote taken from a pasted document would count.
+- The 48 h window and the 20-input buffer per session mean an approval must be recorded soon after it is given.
+- The AskUserQuestion answer shape (`answers` on tool_input or tool_response) was inferred from the tool schema, not from a captured payload. Check one live.

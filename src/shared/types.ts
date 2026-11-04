@@ -1,3 +1,4 @@
+import type { FounderInput } from './decisions'
 // Shared domain types — imported by main (relative) and renderer (@shared alias).
 
 export const PROJECT_TYPES = [
@@ -552,6 +553,9 @@ export interface SessionRecord {
   testStatus?: CommandRecord
   /** the final assistant message of the last turn (trimmed) */
   lastAssistantMessage?: string
+  /** the founder's recent prompts / AskUserQuestion answers (redacted, bounded) — the
+   *  evidence an approved decision must quote (src/shared/decisions.ts) */
+  founderInputs?: FounderInput[]
   /** last few turn recaps, most recent last (bounded) */
   recaps: string[]
   /** ids of other registered projects whose files this session edited */

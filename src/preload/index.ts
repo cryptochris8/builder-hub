@@ -1,5 +1,6 @@
 import { contextBridge, ipcRenderer, webUtils } from 'electron'
 import type { IpcRendererEvent } from 'electron'
+import type { Decision, DecisionRequest } from '../shared/decisions'
 import type {
   CapabilityMatch,
   ClaudeStatusEvent,
@@ -204,6 +205,17 @@ const api = {
       sessionId?: string
     ): Promise<HandoffSaveResult> =>
       ipcRenderer.invoke('context:publishHandoff', projectId, overrides, sessionId)
+  },
+  /** founder decisions in the canon repo (open-claw/knowledge) */
+  decisions: {
+    list: (projectId: string): Promise<{ decisions: Decision[]; file?: string; root?: string }> =>
+      ipcRenderer.invoke('decisions:list', projectId),
+    /** Chris acting in the UI: the click is the evidence */
+    act: (
+      projectId: string,
+      req: DecisionRequest
+    ): Promise<{ ok: boolean; outcome?: string; message?: string }> =>
+      ipcRenderer.invoke('decisions:act', projectId, req)
   },
   creatorStack: {
     list: (): Promise<{ stack: CreatorStack; filePath: string }> => ipcRenderer.invoke('creatorStack:list'),

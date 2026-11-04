@@ -8,11 +8,13 @@ import type {
 } from '@shared/types'
 import { hub } from '@/lib/api'
 import { freshnessLabel } from '@/lib/freshness'
+import { DecisionsPanel } from './DecisionsPanel'
 
 // The "Open project context" tab: the Hub's durable, model-independent state
 // for one project. Auto fields (commands, services, recent work, key files,
 // fingerprint) come from Reindex — a deterministic scan, zero tokens. Notes
-// (purpose, architecture, decisions, tasks, known bugs) are yours. The task
+// (purpose, architecture, tasks, known bugs) are yours. Decisions live in the
+// canon repo with a status and proof (DecisionsPanel, 2026-11-04). The task
 // packet at the bottom is exactly what a new/cleared session gets injected.
 
 const btn =
@@ -201,9 +203,9 @@ export function ContextPane({
                 className={`${field} resize-none`}
               />
             </div>
+            <DecisionsPanel project={project} active={active} notify={notify} />
             {(
               [
-                ['decisions', 'Decisions already made', 'one per line'],
                 ['currentTasks', 'Current tasks', 'one per line'],
                 ['knownBugs', 'Known bugs', 'one per line']
               ] as const
