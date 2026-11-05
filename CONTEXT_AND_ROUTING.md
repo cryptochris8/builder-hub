@@ -190,7 +190,7 @@ What a real governor needs and why it was left out of v1.1:
 
 ## 9. Founder decisions: canon with status and proof (2026-11-04)
 
-**What:** each project's decisions live in the **canon repo** (`~/open-claw/knowledge/<project>/`), not in `context.json`. `decisions.jsonl` is the source and `DECISIONS.md` is the readable view. Every change is a git commit of just those files. Chris chose one central repo on 2026-11-04 so that project repos stay untouched and the desktop can catch up with a `git pull`.
+**What:** each project's decisions live in the **canon repo** (`~/studio-memory/knowledge/<project>/`, private GitHub repo `cryptochris8/studio-memory`), not in `context.json`. `decisions.jsonl` is the source and `DECISIONS.md` is the readable view. Every change is a git commit of just those files. Chris chose one central repo on 2026-11-04 so that project repos stay untouched and the desktop can catch up with a `git pull`.
 
 **Statuses:**
 - `proposed`: anyone may record one; it binds nothing.

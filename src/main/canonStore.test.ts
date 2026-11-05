@@ -7,7 +7,14 @@ import { join } from 'path'
 // canonStore only needs electron for the home path; the root comes from the env here.
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 
-import { canonPaths, loadDecisions, readVision, saveDecisions, freshDecisionId } from './canonStore'
+import {
+  canonPaths,
+  canonRoot,
+  loadDecisions,
+  readVision,
+  saveDecisions,
+  freshDecisionId
+} from './canonStore'
 import { applyDecisionRequest } from '../shared/decisions'
 import type { Project } from '../shared/types'
 
@@ -87,6 +94,21 @@ describe('canonStore', () => {
     } finally {
       process.env.BUILDER_HUB_CANON_ROOT = root
       rmSync(plain, { recursive: true, force: true })
+    }
+  })
+})
+
+describe('canonRoot', () => {
+  it('uses BUILDER_HUB_CANON_ROOT when set, else ~/studio-memory', () => {
+    const saved = process.env.BUILDER_HUB_CANON_ROOT
+    try {
+      process.env.BUILDER_HUB_CANON_ROOT = '  C:/elsewhere  '
+      expect(canonRoot()).toBe('C:/elsewhere')
+      process.env.BUILDER_HUB_CANON_ROOT = ''
+      expect(canonRoot()).toBe(join(tmpdir(), 'studio-memory'))
+    } finally {
+      if (saved === undefined) delete process.env.BUILDER_HUB_CANON_ROOT
+      else process.env.BUILDER_HUB_CANON_ROOT = saved
     }
   })
 })

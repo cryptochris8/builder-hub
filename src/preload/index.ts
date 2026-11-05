@@ -206,7 +206,7 @@ const api = {
     ): Promise<HandoffSaveResult> =>
       ipcRenderer.invoke('context:publishHandoff', projectId, overrides, sessionId)
   },
-  /** founder decisions in the canon repo (open-claw/knowledge) */
+  /** founder decisions in the canon repo (studio-memory/knowledge) */
   decisions: {
     list: (projectId: string): Promise<{ decisions: Decision[]; file?: string; root?: string }> =>
       ipcRenderer.invoke('decisions:list', projectId),

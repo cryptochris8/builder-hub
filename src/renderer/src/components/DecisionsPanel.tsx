@@ -4,7 +4,7 @@ import type { Decision, DecisionRequest } from '@shared/decisions'
 import { decisionsByStatus, normalizeTopic } from '@shared/decisions'
 import { hub } from '@/lib/api'
 
-// Founder decisions for one project, from the canon repo (open-claw/knowledge).
+// Founder decisions for one project, from the canon repo (studio-memory/knowledge).
 // Chris clicking Approve / Reject here IS the evidence; Claude records through the
 // `decide` CLI and needs his quoted words. Approved decisions are injected into
 // every new session for this project.

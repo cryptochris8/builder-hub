@@ -15,7 +15,7 @@
 //                an active approved one is REFUSED unless it supersedes that one,
 //                so canon is never silently rewritten.
 //
-// The records live in a central git repo (the "canon repo", open-claw/knowledge),
+// The records live in a central git repo (the "canon repo", studio-memory/knowledge),
 // one folder per project. The main process does the IO (main/canonStore.ts).
 
 // ---------- types ----------

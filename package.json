@@ -13,7 +13,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "format": "prettier --write \"src/**/*.{ts,tsx}\"",
-    "test": "vitest run",
+    "test": "vitest run && node --test resources/skills/decide/decide.test.mjs",
     "build:win": "electron-vite build && electron-builder --win"
   },
   "dependencies": {

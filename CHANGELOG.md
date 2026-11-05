@@ -13,7 +13,7 @@
   - jsonl storage, a DECISIONS.md renderer, and a bounded SessionStart block of about 3k chars.
 - **Founder inputs** (`SessionRecord.founderInputs`): the last 20 founder prompts and answers per session, redacted. Each keeps up to 2k chars, head and tail. Machine prompts (cross-session messages, task notifications) are excluded. They expire with the session record.
 - **`src/main/canonStore.ts`** (4 tests against a real temp git repo):
-  - Writes `knowledge/<project>/decisions.jsonl` + `DECISIONS.md` (+ `knowledge/index.json`) in the canon repo (`~/open-claw`, override `BUILDER_HUB_CANON_ROOT`).
+  - Writes `knowledge/<project>/decisions.jsonl` + `DECISIONS.md` (+ `knowledge/index.json`) in the canon repo (`~/studio-memory`, private GitHub repo cryptochris8/studio-memory; override `BUILDER_HUB_CANON_ROOT`).
   - Commits only those files by name (`git commit -- <paths>`), so other staged work is never swept in.
 - **`POST /decision`** on the hook server, for the `decide` CLI. The CLI and skill source live in `resources/skills/decide/`; the installed copy is at `~/.claude/skills/decide/`.
 - **SessionStart** now appends the project's decisions: approved ones are binding, rejected approaches stay rejected, plus how to record new ones.

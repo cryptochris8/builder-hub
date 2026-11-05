@@ -25,13 +25,14 @@ import type { Project } from '../shared/types'
 //
 // Every write is atomic and is committed BY FILE NAME (never `git add -A`), so
 // other work in the same repo is never swept into a decision commit. The root
-// defaults to ~/open-claw; BUILDER_HUB_CANON_ROOT overrides it.
+// defaults to ~/studio-memory (GitHub: cryptochris8/studio-memory, private);
+// BUILDER_HUB_CANON_ROOT overrides it.
 
 const GIT_TIMEOUT_MS = 10_000
 
 export function canonRoot(): string {
   const env = (process.env.BUILDER_HUB_CANON_ROOT ?? '').trim()
-  return env || join(app.getPath('home'), 'open-claw')
+  return env || join(app.getPath('home'), 'studio-memory')
 }
 
 function knowledgeDir(): string {
