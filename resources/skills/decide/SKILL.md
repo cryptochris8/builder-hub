@@ -33,7 +33,7 @@ node "C:/Users/chris/.claude/skills/decide/decide.mjs" list
 - Never put secrets in a statement or quote. The Hub redacts them, but keep them out anyway.
 
 ## Where it lives
-- The canon repo is `C:\Users\chris\open-claw\knowledge\<project>\`. `decisions.jsonl` is the source; `DECISIONS.md` is the readable view; `index.json` maps projects to folders.
+- The canon repo is `C:\Users\chris\studio-memory\knowledge\<project>\`. `decisions.jsonl` is the source; `DECISIONS.md` is the readable view; `index.json` maps projects to folders.
 - Every change is committed by file name.
 - Chris can also approve or reject in the Hub: Context tab, then Decisions.
 - Source of the Hub side: `C:\Users\chris\builder-hub\src\shared\decisions.ts`.
